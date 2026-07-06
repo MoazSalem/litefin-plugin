@@ -38,13 +38,13 @@ jobs:
           zip -r "../../../${ZIP_NAME}" *
           cd ../../..
           
-          # Compute SHA256 checksum
-          SHA256=$(sha256sum "${ZIP_NAME}" | awk '{print $1}')
+          # Compute MD5 checksum (Jellyfin plugins repository expects MD5)
+          MD5=$(md5sum "${ZIP_NAME}" | awk '{print $1}')
           
           # Output variables to GitHub Actions state
           echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+          echo "md5=${MD5}" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         id: create_release
@@ -61,7 +61,7 @@ jobs:
       - name: Update manifest.json
         run: |
           VERSION="${{ steps.package.outputs.version }}"
-          SHA256="${{ steps.package.outputs.sha256 }}"
+          MD5="${{ steps.package.outputs.md5 }}"
           ZIP_NAME="${{ steps.package.outputs.zip_name }}"
           DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ZIP_NAME}"
           TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -101,7 +101,7 @@ jobs:
               changelog: 'Release ${VERSION}',
               targetAbi: '10.9.0.0',
               sourceUrl: '${DOWNLOAD_URL}',
-              checksum: '${SHA256}',
+              checksum: '${MD5}',
               timestamp: '${TIMESTAMP}'
             };
 
