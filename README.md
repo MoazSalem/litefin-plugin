@@ -58,3 +58,11 @@ This produces the plugin DLL inside `bin/Release/net9.0/`.
 No initial configuration is needed on the server side. 
 * **Clients**: Connects automatically to the client's companion API. User settings can be backed up from the **Backup & Restore** tab in Litefin client settings.
 * **Administrators**: Navigate to **Dashboard** > **Plugins** > **Litefin** to view a summary of stored user configurations and delete records when necessary.
+
+## FAQs
+
+### Where does the plugin store the backups data?
+(If you want to backup your Litefin plugin data for a server upgrade or something, backup this and then restore it)
+* **Windows (Service)**: `C:\ProgramData\Jellyfin\Server\plugins\configurations\Litefin.Plugin.xml (or Litefin.xml)`
+* **Windows (Portable)**: `<Jellyfin-Directory>\data\config\plugins\configurations\Litefin.Plugin.xml`
+* **Linux/Docker**: `/var/lib/jellyfin/plugins/configurations` / `config/plugins/configurations/Litefin.Plugin.xml`
