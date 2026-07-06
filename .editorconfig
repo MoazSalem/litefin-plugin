@@ -1,0 +1,7 @@
+# Root EditorConfig for Litefin Plugin
+root = true
+
+[*.cs]
+# Disable StyleCop file header requirements to resolve SA1633 and SA1636
+dotnet_diagnostic.SA1633.severity = none
+dotnet_diagnostic.SA1636.severity = none
