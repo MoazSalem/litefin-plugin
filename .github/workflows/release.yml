@@ -1,0 +1,121 @@
+name: Build and Release Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build Plugin
+        run: dotnet build -c Release
+
+      - name: Package Plugin
+        id: package
+        run: |
+          # Extract version from tag (e.g. v1.0.0 -> 1.0.0)
+          VERSION="${GITHUB_REF_NAME#v}"
+          ZIP_NAME="Litefin.Plugin_${VERSION}.zip"
+          
+          # Compress built release files
+          cd bin/Release/net9.0
+          zip -r "../../../${ZIP_NAME}" *
+          cd ../../..
+          
+          # Compute SHA256 checksum
+          SHA256=$(sha256sum "${ZIP_NAME}" | awk '{print $1}')
+          
+          # Output variables to GitHub Actions state
+          echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "sha256=${SHA256}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.package.outputs.zip_name }}
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update manifest.json
+        run: |
+          VERSION="${{ steps.package.outputs.version }}"
+          SHA256="${{ steps.package.outputs.sha256 }}"
+          ZIP_NAME="${{ steps.package.outputs.zip_name }}"
+          DOWNLOAD_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${ZIP_NAME}"
+          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          # Safely parse and update manifest.json using node
+          node -e "
+            const fs = require('fs');
+            const manifestPath = 'manifest.json';
+            let manifest = [];
+            
+            try {
+              if (fs.existsSync(manifestPath)) {
+                manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+              }
+            } catch (e) {
+              console.error('Failed to read or parse manifest.json, initializing empty array', e);
+            }
+
+            // Find or create plugin entry
+            let pluginEntry = manifest.find(p => p.guid === 'f5c68360-ca47-4648-b47c-3da5f112aa8f');
+            if (!pluginEntry) {
+              pluginEntry = {
+                guid: 'f5c68360-ca47-4648-b47c-3da5f112aa8f',
+                name: 'Litefin Settings Backup',
+                description: 'Backup and restore Litefin app preferences directly to/from your Jellyfin server.',
+                overview: 'Synchronizes client settings, layout choices, and color themes.',
+                owner: 'Moaz',
+                category: 'Utility',
+                versions: []
+              };
+              manifest.push(pluginEntry);
+            }
+
+            // Add new version details
+            const newVersion = {
+              version: '${VERSION}',
+              changelog: 'Release ${VERSION}',
+              targetAbi: '10.9.0.0',
+              sourceUrl: '${DOWNLOAD_URL}',
+              checksum: '${SHA256}',
+              timestamp: '${TIMESTAMP}'
+            };
+
+            // Ensure no duplicate version entry is retained
+            pluginEntry.versions = pluginEntry.versions.filter(v => v.version !== '${VERSION}');
+            pluginEntry.versions.unshift(newVersion); // Prepend latest version
+
+            fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+          "
+
+      - name: Commit and Push Manifest Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          git commit -m "chore: update manifest.json for version ${{ steps.package.outputs.version }}" || exit 0
+          git push origin HEAD:${{ github.event.repository.default_branch }}
