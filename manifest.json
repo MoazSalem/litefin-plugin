@@ -6,7 +6,16 @@
     "overview": "Synchronizes client settings, layout choices, and color themes.",
     "owner": "MoazSalem",
     "category": "General",
-	"imageUrl": "https://raw.githubusercontent.com/MoazSalem/litefin-plugin/release/icon.png",
-    "versions": []
+    "imageUrl": "https://raw.githubusercontent.com/MoazSalem/litefin-plugin/release/icon.png",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Release 1.0.0.0",
+        "targetAbi": "10.9.0.0",
+        "sourceUrl": "https://github.com/MoazSalem/litefin-plugin/releases/download/v1.0.0.0/Litefin.Plugin_1.0.0.0.zip",
+        "checksum": "1f250543e4573226c53ea1e68b91e62c",
+        "timestamp": "2026-07-07T14:04:42Z"
+      }
+    ]
   }
 ]
