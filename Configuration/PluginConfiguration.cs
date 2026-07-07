@@ -20,13 +20,14 @@ public class PluginConfiguration : BasePluginConfiguration
     /// </summary>
     public PluginConfiguration()
     {
-        // Use the recommended Collection type for StyleCop / CA compliance
         this.Backups = new Collection<UserBackup>();
     }
 
     /// <summary>
-    /// Gets the collection of user-specific client settings backups.
+    /// Gets or sets the collection of user-specific client settings backups.
     /// This collection is serialized automatically by Jellyfin as part of the plugin configuration.
     /// </summary>
-    public Collection<UserBackup> Backups { get; }
+#pragma warning disable CA2227 // Collection properties should be read-only - setter required for JSON deserialization
+    public Collection<UserBackup> Backups { get; set; }
+#pragma warning restore CA2227
 }

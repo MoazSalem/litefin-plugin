@@ -26,7 +26,7 @@ A lightweight Jellyfin Server plugin that acts as a companion server extension f
 2. In your Jellyfin Server, navigate to **Dashboard** > **Plugins** > **Repositories**.
 3. Click **Add** (`+`), enter a name (e.g. `Litefin Plugins`), and paste the copied URL.
 4. Go to the **Catalog** tab, locate **Litefin Plugin** under the **General** category, and click **Install**.
-5. Restart your Jellyfin Server to load the plugin.
+5. Restart your Jellyfin Server to load the plugin (For NAS users you may need to restart your NAS).
 
 ### Option 2: Manual Installation
 1. Compile the plugin or download the `.zip` archive from the Releases page.
@@ -62,7 +62,6 @@ No initial configuration is needed on the server side.
 ## FAQs
 
 ### Where does the plugin store the backups data?
-(If you want to backup your Litefin plugin data for a server upgrade or something, backup this and then restore it)
 * **Windows (Service)**: `C:\ProgramData\Jellyfin\Server\plugins\configurations\Litefin.Plugin.xml (or Litefin.xml)`
 * **Windows (Portable)**: `<Jellyfin-Directory>\data\config\plugins\configurations\Litefin.Plugin.xml`
 * **Linux/Docker**: `/var/lib/jellyfin/plugins/configurations` / `config/plugins/configurations/Litefin.Plugin.xml`

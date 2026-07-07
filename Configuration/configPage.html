@@ -9,17 +9,36 @@
         <div data-role="content">
             <div class="content-primary">
                 <h2>Litefin</h2>
-                <p style="margin-bottom: 2em; color: #aaa; line-height: 1.5; font-size: 1.1em;">
+                <p style="margin-bottom: 1.5em; color: #aaa; line-height: 1.5; font-size: 1.1em;">
                     This plugin provides secure backup and restore storage for Litefin clients.
-                    No global configuration is required. Administrators can view and manage stored user backups below.
+                    No global configuration is required. Administrators can view, delete, and import/export stored backups below.
                 </p>
+
+                <!-- Export/Import Tools -->
+                <div style="display: flex; gap: 12px; margin-bottom: 2em;">
+                    <button is="emby-button" type="button" class="raised button-submit" id="btn-export-backups" style="margin: 0; padding: 0.6em 1.2em; border-radius: 4px; cursor: pointer;">
+                        <span>Export Backups</span>
+                    </button>
+                    <button is="emby-button" type="button" class="raised button-accent" id="btn-import-backups" style="margin: 0; padding: 0.6em 1.2em; border-radius: 4px; cursor: pointer; background: #555;">
+                        <span>Import Backups</span>
+                    </button>
+                    <input type="file" id="import-backups-file" accept=".json" style="display: none;" />
+                    <button is="emby-button" type="button" class="raised" id="btn-refresh-backups" style="margin: 0 0 0 auto; padding: 0.6em 1.2em; border-radius: 4px; cursor: pointer; background: #3a3a3a;">
+                        <span>Refresh</span>
+                    </button>
+                </div>
 
                 <h3 style="margin-top: 1.5em; font-size: 1.3em; font-weight: 500;">Stored Backups</h3>
                 <div class="paperList" style="padding: 1.5em; background: #1a1a1a; border-radius: 6px; border: 1px solid #2e2e2e; margin-top: 1em;">
                     <table class="table" style="width: 100%; text-align: left; border-collapse: collapse;">
                         <thead>
                             <tr style="border-bottom: 1px solid #444; color: #fff;">
+                                <th style="padding: 0.8em 0; font-weight: bold;">Backup Name</th>
+                                <th style="padding: 0.8em 0; font-weight: bold;">Device Name</th>
                                 <th style="padding: 0.8em 0; font-weight: bold;">Username</th>
+                                <th style="padding: 0.8em 0; font-weight: bold;">Device ID</th>
+                                <th style="padding: 0.8em 0; font-weight: bold;">Platform</th>
+                                <th style="padding: 0.8em 0; font-weight: bold;">Version</th>
                                 <th style="padding: 0.8em 0; font-weight: bold;">Last Backed Up</th>
                                 <th style="padding: 0.8em 0; font-weight: bold; text-align: right;">Actions</th>
                             </tr>
@@ -35,7 +54,7 @@
             var LitefinConfig = {
                 pluginUniqueId: 'f5c68360-ca47-4648-b47c-3da5f112aa8f'
             };
-
+ 
             function escapeHtml(unsafe) {
                 return (unsafe || "")
                     .replace(/&/g, "&amp;")
@@ -44,22 +63,46 @@
                     .replace(/"/g, "&quot;")
                     .replace(/'/g, "&#039;");
             }
-
+ 
             function loadBackupsList() {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
                     var html = '';
-                    var backups = config.Backups || [];
+                    var backups = (config.Backups || []).map(function (b, index) {
+                        return { data: b, originalIndex: index };
+                    });
+
+                    // Sort newest first
+                    backups.sort(function (a, b) {
+                        return new Date(b.data.DateCreated) - new Date(a.data.DateCreated);
+                    });
                     
                     if (backups.length === 0) {
-                        html = '<tr><td colspan="3" style="padding: 1.5em 0; text-align: center; color: #777;">No stored user backups found.</td></tr>';
+                        html = '<tr><td colspan="8" style="padding: 1.5em 0; text-align: center; color: #777;">No stored user backups found.</td></tr>';
                     } else {
-                        backups.forEach(function (backup, index) {
+                        backups.forEach(function (item) {
+                            var backup = item.data;
+                            var index = item.originalIndex;
                             var dateStr = new Date(backup.DateCreated).toLocaleString();
+                            var backupName = backup.Name || '(Auto)';
+                            var platformMap = {
+                                'web': 'Web',
+                                'tizen': 'Tizen',
+                                'webos': 'WebOS'
+                            };
+                            var platformDisplay = platformMap[backup.Platform] || backup.Platform || 'Unknown';
+                            var appVersion = backup.AppVersion || '1.0.0';
+
                             html += '<tr style="border-bottom: 1px solid #2e2e2e;">';
-                            html += '  <td style="padding: 0.8em 0; font-weight: 500;">' + escapeHtml(backup.Username) + '</td>';
+                            html += '  <td style="padding: 0.8em 0; font-weight: 500;">' + escapeHtml(backupName) + '</td>';
+                            html += '  <td style="padding: 0.8em 0; color: #aaa;">' + escapeHtml(backup.DeviceName || 'Unknown') + '</td>';
+                            html += '  <td style="padding: 0.8em 0; color: #ccc;">' + escapeHtml(backup.Username) + '</td>';
+                            html += '  <td style="padding: 0.8em 0; color: #777; font-family: monospace; font-size: 0.9em;">' + escapeHtml(backup.DeviceId || 'Unknown') + '</td>';
+                            html += '  <td style="padding: 0.8em 0; color: #ccc;">' + escapeHtml(platformDisplay) + '</td>';
+                            html += '  <td style="padding: 0.8em 0; color: #ccc;">' + escapeHtml(appVersion) + '</td>';
                             html += '  <td style="padding: 0.8em 0; color: #aaa;">' + dateStr + '</td>';
-                            html += '  <td style="padding: 0.8em 0; text-align: right;">';
+                            html += '  <td style="padding: 0.8em 0; text-align: right; white-space: nowrap;">';
+                            html += '    <button is="emby-button" type="button" class="raised button-subtle btnExportBackup" data-index="' + index + '" style="margin: 0 4px 0 0; padding: 0.4em 0.8em; font-size: 0.9em; background: #555; color: white; border-radius: 4px; border: none; cursor: pointer;">Export</button>';
                             html += '    <button is="emby-button" type="button" class="raised button-accent btnDeleteBackup" data-index="' + index + '" style="margin: 0; padding: 0.4em 0.8em; font-size: 0.9em; background: #cc3333; color: white; border-radius: 4px; border: none; cursor: pointer;">Delete</button>';
                             html += '  </td>';
                             html += '</tr>';
@@ -69,9 +112,18 @@
                     var body = document.querySelector('#backups-table-body');
                     body.innerHTML = html;
                     
+                    // Bind export handlers
+                    var exportBtns = body.querySelectorAll('.btnExportBackup');
+                    exportBtns.forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            var index = parseInt(this.getAttribute('data-index'));
+                            exportBackupRecord(index);
+                        });
+                    });
+
                     // Bind delete handlers
-                    var buttons = body.querySelectorAll('.btnDeleteBackup');
-                    buttons.forEach(function (btn) {
+                    var deleteBtns = body.querySelectorAll('.btnDeleteBackup');
+                    deleteBtns.forEach(function (btn) {
                         btn.addEventListener('click', function () {
                             var index = parseInt(this.getAttribute('data-index'));
                             deleteBackupRecord(index);
@@ -94,9 +146,105 @@
                 }
             }
 
+            function exportBackupRecord(index) {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
+                    var backup = config.Backups[index];
+                    if (!backup) {
+                        Dashboard.hideLoadingMsg();
+                        return;
+                    }
+                    var blob = new Blob([JSON.stringify([backup], null, 2)], {type: 'application/json'});
+                    var url = URL.createObjectURL(blob);
+                    var a = document.createElement('a');
+                    a.href = url;
+                    a.download = (backup.Name || backup.DeviceName || 'backup').replace(/[^a-zA-Z0-9 _-]/g, '') + '_' + Date.now() + '.json';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    Dashboard.hideLoadingMsg();
+                });
+            }
+
             document.querySelector('#LitefinBackupConfigPage')
                 .addEventListener('pageshow', function() {
                     loadBackupsList();
+
+                    // Bind Export Action
+                    document.querySelector('#btn-export-backups').onclick = function() {
+                        Dashboard.showLoadingMsg();
+                        ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
+                            var backups = config.Backups || [];
+                            var blob = new Blob([JSON.stringify(backups, null, 2)], {type: 'application/json'});
+                            var url = URL.createObjectURL(blob);
+                            var a = document.createElement('a');
+                            a.href = url;
+                            a.download = 'litefin_backups_export_' + Date.now() + '.json';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            Dashboard.hideLoadingMsg();
+                        });
+                    };
+
+                    // Bind Refresh Action
+                    document.querySelector('#btn-refresh-backups').onclick = function() {
+                        loadBackupsList();
+                    };
+
+                    // Bind Import Action
+                    var fileInput = document.querySelector('#import-backups-file');
+                    document.querySelector('#btn-import-backups').onclick = function() {
+                        fileInput.click();
+                    };
+
+                    fileInput.onchange = function(e) {
+                        var file = e.target.files[0];
+                        if (!file) return;
+                        var reader = new FileReader();
+                        reader.onload = function(evt) {
+                            try {
+                                var imported = JSON.parse(evt.target.result);
+                                if (!Array.isArray(imported)) {
+                                    alert('Invalid backup file. Must be a JSON array of backup records.');
+                                    return;
+                                }
+
+                                Dashboard.showLoadingMsg();
+                                ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
+                                    var currentBackups = config.Backups || [];
+                                    
+                                    // Merge backups list by checking Id
+                                    imported.forEach(function (imp) {
+                                        // Ensure the minimal required fields are present
+                                        if (!imp.Id || !imp.UserId || !imp.Settings) return;
+                                        
+                                        var idx = currentBackups.findIndex(function (b) {
+                                            return b.Id === imp.Id;
+                                        });
+                                        
+                                        if (idx !== -1) {
+                                            currentBackups[idx] = imp;
+                                        } else {
+                                            currentBackups.push(imp);
+                                        }
+                                    });
+
+                                    config.Backups = currentBackups;
+                                    ApiClient.updatePluginConfiguration(LitefinConfig.pluginUniqueId, config).then(function () {
+                                        loadBackupsList();
+                                        alert('Backups successfully merged and imported.');
+                                    });
+                                });
+                            } catch (err) {
+                                alert('Error parsing file: ' + err.message);
+                            }
+                            fileInput.value = ''; // Reset file input
+                        };
+                        reader.readAsText(file);
+                    };
                 });
         </script>
     </div>
