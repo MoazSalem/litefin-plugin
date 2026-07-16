@@ -1,40 +1,38 @@
 # Litefin Plugin
 
-A lightweight Jellyfin Server plugin that acts as a companion server extension for the Litefin client application. It introduces dedicated server-side APIs, state persistence, and integrations to enhance the client experience.
+A lightweight Jellyfin Server companion extension for the Litefin client. It exposes dedicated server-side APIs, state persistence, and management tools to store and sync your app settings securely.
 
 ---
 
-## Feature Modules
+## Features
 
-### Settings Backup & Restore (Current)
-* **Multi-User Sync**: Securely stores settings backups partitioned by Jellyfin User ID.
-* **Privacy Focused**: Safely filters out sensitive authentication tokens, connection URLs, and device identifiers from the backup payload before saving.
-* **Admin Dashboard**: Adds a management page to the Jellyfin dashboard under *Plugins*, allowing administrators to view active user backups, check backup timestamps, and prune storage.
-
-*More companion features and server-side helper modules will be added in future releases.*
+* **Multi-Snapshot Backups**: Save as many preference snapshots as you want. Give them custom labels or let the client auto-identify them using device metadata.
+* **Shared Visibility, Secured Control**: All backups on the server are visible to any user for cross-profile restoring. However, overwrite and delete actions are strictly restricted to the user who created the backup.
+* **Device & Platform Context**: Captures device name, device ID, Litefin app version, and platform (Web, Tizen, webOS) for every snapshot.
+* **Admin Console**: Administrators can manage all stored backups from the Jellyfin Dashboard (under **Plugins** > **Litefin**). Features newest-first sorting, custom backup records deletion, export/downloading, and merging/importing backup JSON files.
+* **Privacy Focused**: Sensitive parameters (e.g., access tokens, server connection URLs, local session states) are stripped client-side before backup payloads are uploaded.
 
 ---
-
 
 ## Installation
 
 ### Option 1: Via Repository Manifest (Recommended)
-1. Copy the raw manifest repository URL:
+1. Copy this manifest repository URL:
    ```text
    https://raw.githubusercontent.com/MoazSalem/litefin-plugin/release/manifest.json
    ```
-2. In your Jellyfin Server, navigate to **Dashboard** > **Plugins** > **Repositories**.
-3. Click **Add** (`+`), enter a name (e.g. `Litefin Plugins`), and paste the copied URL.
-4. Go to the **Catalog** tab, locate **Litefin Plugin** under the **General** category, and click **Install**.
-5. Restart your Jellyfin Server to load the plugin (For NAS users you may need to restart your NAS).
+2. Navigate to **Dashboard** > **Plugins** > **Repositories** in your Jellyfin Server.
+3. Click **Add** (`+`), enter a name (e.g. `Litefin Plugins`), and paste the URL.
+4. Go to the **Catalog** tab, find **Litefin Plugin** under **General**, and click **Install**.
+5. Restart your Jellyfin Server.
 
 ### Option 2: Manual Installation
 1. Compile the plugin or download the `.zip` archive from the Releases page.
-2. Extract the contents (including `Litefin.Plugin.dll`) into your Jellyfin server's `plugins/Litefin` directory:
-   * **Windows (Service)**: `C:\ProgramData\Jellyfin\Server\plugins\`
-   * **Windows (Portable)**: `<Jellyfin-Directory>\data\plugins\`
-   * **Linux/Docker**: `/config/plugins/` (or mapped path)
-3. Restart the Jellyfin server.
+2. Extract the archive (specifically `Litefin.Plugin.dll` and `manifest.json`) into your server's plugin directory:
+   * **Windows (Service)**: `C:\ProgramData\Jellyfin\Server\plugins\Litefin\`
+   * **Windows (Portable)**: `<Jellyfin-Directory>\data\plugins\Litefin\`
+   * **Linux/Docker**: `/config/plugins/Litefin/`
+3. Restart your Jellyfin Server.
 
 ---
 
@@ -42,26 +40,22 @@ A lightweight Jellyfin Server plugin that acts as a companion server extension f
 
 ### Prerequisites
 * [.NET 9.0 SDK](https://dotnet.microsoft.com/download)
-* A local Jellyfin server development setup (optional, for testing)
 
 ### Compilation
-Build the plugin in Release mode using the .NET CLI:
+Build the plugin DLL using the .NET CLI:
 ```bash
 dotnet build -c Release
 ```
-This produces the plugin DLL inside `bin/Release/net9.0/`.
+This outputs the compiled DLL under `bin/Release/net9.0/Litefin.Plugin.dll`.
 
 ---
 
 ## Configuration
 
-No initial configuration is needed on the server side. 
-* **Clients**: Connects automatically to the client's companion API. User settings can be backed up from the **Backup & Restore** tab in Litefin client settings.
-* **Administrators**: Navigate to **Dashboard** > **Plugins** > **Litefin** to view a summary of stored user configurations and delete records when necessary.
+* **Client**: In the Litefin client, go to **Settings** > **Backup & Restore** to select, restore, overwrite, or delete backup snapshots.
+* **Admin**: Go to **Dashboard** > **Plugins** > **Litefin** to monitor stored configs, export copies, or prune database records.
 
-## FAQs
-
-### Where does the plugin store the backups data?
-* **Windows (Service)**: `C:\ProgramData\Jellyfin\Server\plugins\configurations\Litefin.Plugin.xml (or Litefin.xml)`
-* **Windows (Portable)**: `<Jellyfin-Directory>\data\config\plugins\configurations\Litefin.Plugin.xml`
-* **Linux/Docker**: `/var/lib/jellyfin/plugins/configurations` / `config/plugins/configurations/Litefin.Plugin.xml`
+## Storage Location
+Stored backups are saved inside the Jellyfin configuration folder:
+* **Windows**: `C:\ProgramData\Jellyfin\Server\plugins\configurations\Litefin.Plugin.xml` (or `Litefin.xml`)
+* **Linux/Docker**: `/config/plugins/configurations/Litefin.Plugin.xml`
