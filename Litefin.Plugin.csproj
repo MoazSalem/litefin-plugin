@@ -8,6 +8,7 @@
     <Nullable>enable</Nullable>
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
     <NoWarn>$(NoWarn);NU1603</NoWarn>
+    <Version>1.1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

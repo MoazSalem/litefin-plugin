@@ -11,6 +11,8 @@ A lightweight Jellyfin Server companion extension for the Litefin client. It exp
 * **Device & Platform Context**: Captures device name, device ID, Litefin app version, and platform (Web, Tizen, webOS) for every snapshot.
 * **Admin Console**: Administrators can manage all stored backups from the Jellyfin Dashboard (under **Plugins** > **Litefin**). Features newest-first sorting, custom backup records deletion, export/downloading, and merging/importing backup JSON files.
 * **Privacy Focused**: Sensitive parameters (e.g., access tokens, server connection URLs, local session states) are stripped client-side before backup payloads are uploaded.
+* **Chronological Merged Rows**: Exposes a consolidated `/Litefin/MergedRows/ContinueAndNextUp` endpoint that fetches, deduplicates, and chronologically orders (Plex-style) Continue Watching and Next Up rows on the server-side, reducing client loading time.
+* **Collections Lookup Helper**: Exposes a fallback `/Litefin/Items/{itemId}/Collections` API endpoint to let older Jellyfin servers (such as version 10.11) query which collections a movie or series belongs to.
 
 ---
 
