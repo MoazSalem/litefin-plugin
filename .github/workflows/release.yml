@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+      - '[0-9]*'
 
 permissions:
   contents: write
@@ -18,19 +19,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Extract Version
+        id: get_version
+        run: |
+          # Extract version from tag (e.g. v1.1.0.1 -> 1.1.0.1 or 1.1.0.1 -> 1.1.0.1)
+          TAG_NAME="${GITHUB_REF_NAME}"
+          VERSION="${TAG_NAME#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
+      - name: Update Litefin.Plugin.csproj Version
+        run: |
+          VERSION="${{ steps.get_version.outputs.version }}"
+          node -e "
+            const fs = require('fs');
+            const csprojPath = 'Litefin.Plugin.csproj';
+            let content = fs.readFileSync(csprojPath, 'utf8');
+            if (content.includes('<Version>')) {
+              content = content.replace(/<Version>.*?<\/Version>/g, '<Version>' + '${VERSION}' + '</Version>');
+            } else {
+              content = content.replace('</PropertyGroup>', '  <Version>' + '${VERSION}' + '</Version>\n  </PropertyGroup>');
+            }
+            fs.writeFileSync(csprojPath, content);
+          "
+
       - name: Build Plugin
-        run: dotnet build -c Release
+        run: dotnet build -c Release -p:Version=${{ steps.get_version.outputs.version }}
 
       - name: Package Plugin
         id: package
         run: |
-          # Extract version from tag (e.g. v1.0.0 -> 1.0.0)
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${{ steps.get_version.outputs.version }}"
           ZIP_NAME="Litefin.Plugin_${VERSION}.zip"
           
           # Compress built release files
@@ -85,11 +108,11 @@ jobs:
             if (!pluginEntry) {
               pluginEntry = {
                 guid: 'f5c68360-ca47-4648-b47c-3da5f112aa8f',
-                name: 'Litefin Settings Backup',
-                description: 'Backup and restore Litefin app preferences directly to/from your Jellyfin server.',
+                name: 'Litefin',
+                description: 'Litefin client helper plugin, currently it helps backup and restore Litefin app settings directly to/from your Jellyfin server.',
                 overview: 'Synchronizes client settings, layout choices, and color themes.',
-                owner: 'Moaz',
-                category: 'Utility',
+                owner: 'MoazSalem',
+                category: 'General',
                 versions: []
               };
               manifest.push(pluginEntry);
@@ -99,7 +122,7 @@ jobs:
             const newVersion = {
               version: '${VERSION}',
               changelog: 'Release ${VERSION}',
-              targetAbi: '10.9.0.0',
+              targetAbi: '10.11.0.0',
               sourceUrl: '${DOWNLOAD_URL}',
               checksum: '${MD5}',
               timestamp: '${TIMESTAMP}'
@@ -112,10 +135,10 @@ jobs:
             fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
           "
 
-      - name: Commit and Push Manifest Changes
+      - name: Commit and Push Manifest and Csproj Changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add manifest.json
-          git commit -m "chore: update manifest.json for version ${{ steps.package.outputs.version }}" || exit 0
+          git add manifest.json Litefin.Plugin.csproj
+          git commit -m "chore: release version ${{ steps.get_version.outputs.version }}" || exit 0
           git push origin HEAD:${{ github.event.repository.default_branch }}
