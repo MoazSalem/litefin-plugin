@@ -225,10 +225,18 @@ public class MergedRowsController : ControllerBase
         // Convert raw server entities into presentation DTO format
         var dtos = this.dtoService.GetBaseItemDtos(finalSlice, dtoOptions, user);
 
+        // Map DTOs back to the exact OrderByDescending activity date sequence of finalSlice
+        var dtoMap = dtos.ToDictionary(x => x.Id);
+        var orderedDtos = finalSlice
+            .Select(x => dtoMap.TryGetValue(x.Id, out var dto) ? dto : null)
+            .Where(x => x != null)
+            .Select(x => x!)
+            .ToList();
+
         // Package the results in a query wrapper response
         return this.Ok(new QueryResult<BaseItemDto>(
             0,
-            dtos.Count,
-            dtos));
+            orderedDtos.Count,
+            orderedDtos));
     }
 }
