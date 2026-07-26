@@ -72,6 +72,7 @@ public class MergedRowsController : ControllerBase
     /// </summary>
     /// <param name="userId">Optional. The user id to get the merged list for.</param>
     /// <param name="limit">Optional. The maximum number of records to return for each query.</param>
+    /// <param name="fields">Optional. Specify additional fields of information to return in the output.</param>
     /// <response code="200">Returns the merged list of base item DTOs.</response>
     /// <response code="404">If the user is not found on the server.</response>
     /// <returns>A merged query result list of BaseItemDto.</returns>
@@ -80,7 +81,8 @@ public class MergedRowsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<QueryResult<BaseItemDto>> GetContinueAndNextUp(
         [FromQuery] Guid? userId,
-        [FromQuery] int? limit)
+        [FromQuery] int? limit,
+        [FromQuery] ItemFields[]? fields)
     {
         // Log query details for debugging performance
         this.logger.LogInformation("Processing GetContinueAndNextUp API request for user: {UserId}", userId);
@@ -113,9 +115,11 @@ public class MergedRowsController : ControllerBase
         // Set default row limit size if none is requested by the client
         var rowLimit = limit ?? 12;
 
-        // Configure default DTO serialization options to include metadata and layout elements
-        var dtoOptions = new DtoOptions
+        // Configure DTO serialization options. If fields are provided, use them;
+        // otherwise default to minimal fields to avoid sending heavy unneeded metadata.
+        var dtoOptions = new DtoOptions(allFields: false)
         {
+            Fields = fields is { Length: > 0 } ? fields : [ItemFields.PrimaryImageAspectRatio],
             EnableImages = true,
             EnableUserData = true,
             ImageTypeLimit = 1,
