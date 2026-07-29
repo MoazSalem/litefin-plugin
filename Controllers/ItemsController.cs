@@ -13,6 +13,8 @@ using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Net.Mime;
 using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Enums;
+using Litefin.Plugin.Models;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
@@ -274,5 +276,184 @@ public class ItemsController : ControllerBase
         }
 
         return this.Ok(result);
+    }
+
+    /// <summary>
+    /// Retrieves candidate backdrop &amp; thumbnail items for multiple parent library IDs in a single request.
+    /// Also resolves the best image URL server-side using the appropriate priority chain for each collection type.
+    /// </summary>
+    /// <param name="parentIds">Comma-separated list of parent library GUIDs.</param>
+    /// <param name="userId">Optional. User ID filter.</param>
+    /// <response code="200">Dictionary mapping parentId -> LibraryThumbnailResult with candidate items and pre-resolved image URL.</response>
+    /// <returns>A dictionary mapping parentId to LibraryThumbnailResult.</returns>
+    [HttpGet("Thumbnails")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyDictionary<string, LibraryThumbnailResult>> GetLibraryThumbnails(
+        [FromQuery] string? parentIds,
+        [FromQuery] Guid? userId)
+    {
+        var result = new Dictionary<string, LibraryThumbnailResult>(StringComparer.OrdinalIgnoreCase);
+
+        if (string.IsNullOrWhiteSpace(parentIds))
+        {
+            return this.Ok(result);
+        }
+
+        var targetUserId = userId;
+        if (!targetUserId.HasValue)
+        {
+            var claimsUserId = this.User.Claims.FirstOrDefault(c => c.Type.Equals("Jellyfin-UserId", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (Guid.TryParse(claimsUserId, out var parsedGuid))
+            {
+                targetUserId = parsedGuid;
+            }
+        }
+
+        if (!targetUserId.HasValue)
+        {
+            return this.Unauthorized("User context missing.");
+        }
+
+        var user = this.userManager.GetUserById(targetUserId.Value);
+        if (user == null)
+        {
+            return this.Unauthorized("User not found.");
+        }
+
+        var ids = parentIds
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => Guid.TryParse(s, out var g) ? (Guid?)g : null)
+            .Where(g => g.HasValue)
+            .Select(g => g!.Value)
+            .ToArray();
+
+        var dtoOptions = new DtoOptions(allFields: false)
+        {
+            EnableImages = true,
+            EnableUserData = false,
+            ImageTypeLimit = 1,
+        };
+
+        var serverUrl = $"{this.Request.Scheme}://{this.Request.Host}{this.Request.PathBase}";
+
+        foreach (var parentId in ids)
+        {
+            try
+            {
+                var parentItem = this.libraryManager.GetItemById(parentId);
+                if (parentItem == null)
+                {
+                    result[parentId.ToString("N")] = new LibraryThumbnailResult();
+                    continue;
+                }
+
+                var collectionFolder = parentItem as ICollectionFolder;
+                var collectionType = collectionFolder?.CollectionType;
+
+                BaseItemKind[] includeItemTypes = collectionType switch
+                {
+                    CollectionType.music => [BaseItemKind.MusicAlbum, BaseItemKind.Audio],
+                    CollectionType.boxsets => [BaseItemKind.BoxSet],
+                    CollectionType.playlists => [BaseItemKind.Playlist],
+                    _ => Array.Empty<BaseItemKind>(),
+                };
+
+                var query = new InternalItemsQuery(user)
+                {
+                    IncludeItemTypes = includeItemTypes,
+                    IsVirtualItem = false,
+                    OrderBy = [(ItemSortBy.Random, SortOrder.Ascending)],
+                    Limit = 5,
+                    Recursive = true,
+                    DtoOptions = dtoOptions,
+                };
+
+                QueryResult<BaseItem> itemsResult;
+                if (parentItem is Folder folder)
+                {
+                    itemsResult = folder.GetItems(query);
+                }
+                else
+                {
+                    itemsResult = this.libraryManager.GetItemsResult(query);
+                }
+
+                var candidates = itemsResult.Items
+                    .Where(item => item.HasImage(ImageType.Backdrop) || item.HasImage(ImageType.Primary) || item.HasImage(ImageType.Thumb))
+                    .ToList();
+
+                var dtos = this.dtoService.GetBaseItemDtos(candidates, dtoOptions, user);
+
+                var resolvedUrl = ResolveBestImageUrl(dtos, serverUrl, collectionType?.ToString());
+
+                foreach (var dto in dtos)
+                {
+                    dto.MediaSources = null;
+                    dto.UserData = null;
+                    dto.PremiereDate = null;
+                    dto.EndDate = null;
+                    dto.OfficialRating = null;
+                    dto.CommunityRating = null;
+                    dto.ChannelId = null;
+                    dto.Status = null;
+                    dto.AirDays = null;
+                    dto.ChildCount = null;
+                    dto.Overview = null;
+                    dto.Genres = null;
+                    dto.Taglines = null;
+                    dto.ExternalUrls = null;
+                    dto.People = null;
+                    dto.Studios = null;
+                }
+
+                result[parentId.ToString("N")] = new LibraryThumbnailResult
+                {
+                    Items = dtos,
+                    ResolvedUrl = resolvedUrl,
+                };
+            }
+            catch (Exception ex)
+            {
+                this.logger.LogError(ex, "Error processing library thumbnail candidates for parentId {ParentId}", parentId);
+                result[parentId.ToString("N")] = new LibraryThumbnailResult();
+            }
+        }
+
+        return this.Ok(result);
+    }
+
+    private static string? ResolveBestImageUrl(IReadOnlyList<BaseItemDto> items, string serverUrl, string? collectionType)
+    {
+        ImageType[] priorityOrder = collectionType switch
+        {
+            "music" or "playlists" or "boxsets"
+                => [ImageType.Primary, ImageType.Thumb, ImageType.Backdrop],
+            "photos" or "homevideos" or "musicvideos" or "livetv"
+                => [ImageType.Primary, ImageType.Thumb],
+            _ => [ImageType.Backdrop, ImageType.Thumb, ImageType.Primary],
+        };
+
+        foreach (var imageType in priorityOrder)
+        {
+            foreach (var item in items)
+            {
+                var tag = GetImageTag(item, imageType);
+                if (tag != null)
+                {
+                    return $"{serverUrl}/Items/{item.Id:N}/Images/{imageType}?tag={tag}&maxWidth=512&quality=80";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetImageTag(BaseItemDto item, ImageType imageType)
+    {
+        return imageType switch
+        {
+            ImageType.Backdrop => item.BackdropImageTags?.Length > 0 ? item.BackdropImageTags[0] : null,
+            _ => item.ImageTags?.TryGetValue(imageType, out var tag) == true ? tag : null,
+        };
     }
 }
