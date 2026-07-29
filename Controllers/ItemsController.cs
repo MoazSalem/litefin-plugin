@@ -1,0 +1,278 @@
+// <copyright file="ItemsController.cs" company="Jellyfin Project">
+// Copyright (c) Jellyfin Project. All rights reserved.
+// </copyright>
+
+#pragma warning disable CA1848 // Use LoggerMessage delegates for performance
+#pragma warning disable CA1031 // Do not catch general exception types
+
+namespace Litefin.Plugin.Controllers;
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using System.Linq;
+using System.Net.Mime;
+using Jellyfin.Data.Enums;
+using MediaBrowser.Controller.Dto;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Querying;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+
+/// <summary>
+/// REST API controller that exposes endpoints to batch query item DTOs across multiple libraries.
+/// </summary>
+[ApiController]
+[Authorize]
+[Route("Litefin/[controller]")]
+[Produces(MediaTypeNames.Application.Json)]
+public class ItemsController : ControllerBase
+{
+    private readonly IUserManager userManager;
+    private readonly IUserViewManager userViewManager;
+    private readonly ILibraryManager libraryManager;
+    private readonly IDtoService dtoService;
+    private readonly ILogger<ItemsController> logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ItemsController"/> class.
+    /// </summary>
+    /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
+    /// <param name="userViewManager">Instance of the <see cref="IUserViewManager"/> interface.</param>
+    /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="dtoService">Instance of the <see cref="IDtoService"/> interface.</param>
+    /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
+    public ItemsController(
+        IUserManager userManager,
+        IUserViewManager userViewManager,
+        ILibraryManager libraryManager,
+        IDtoService dtoService,
+        ILoggerFactory loggerFactory)
+    {
+        this.userManager = userManager;
+        this.userViewManager = userViewManager;
+        this.libraryManager = libraryManager;
+        this.dtoService = dtoService;
+        this.logger = loggerFactory.CreateLogger<ItemsController>();
+    }
+
+    /// <summary>
+    /// Batch retrieves latest items for multiple library parent IDs in a single HTTP request.
+    /// </summary>
+    /// <param name="parentIds">Array of parent library IDs to fetch latest items for.</param>
+    /// <param name="userId">Optional. User ID filter.</param>
+    /// <param name="limit">Optional. Maximum number of items per library (default: 12).</param>
+    /// <param name="isPlayed">Optional. Filter by played status.</param>
+    /// <param name="fields">Optional. Additional DTO fields to include.</param>
+    /// <response code="200">Dictionary mapping library parent ID to its list of latest BaseItemDto items.</response>
+    /// <response code="401">User context missing.</response>
+    /// <returns>A dictionary mapping parent ID to BaseItemDto list.</returns>
+    [HttpGet("Latest")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public ActionResult<Dictionary<Guid, IReadOnlyList<BaseItemDto>>> GetBatchLatest(
+        [FromQuery] string? parentIds,
+        [FromQuery] Guid? userId,
+        [FromQuery] int? limit,
+        [FromQuery] bool? isPlayed,
+        [FromQuery] string? fields)
+    {
+        if (string.IsNullOrWhiteSpace(parentIds))
+        {
+            return this.Ok(new Dictionary<Guid, IReadOnlyList<BaseItemDto>>());
+        }
+
+        var parsedParentIds = parentIds
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => Guid.TryParse(s, out var g) ? g : Guid.Empty)
+            .Where(g => g != Guid.Empty)
+            .Distinct()
+            .ToArray();
+
+        if (parsedParentIds.Length == 0)
+        {
+            return this.Ok(new Dictionary<Guid, IReadOnlyList<BaseItemDto>>());
+        }
+
+        this.logger.LogInformation("Processing GetBatchLatest for {Count} parent libraries", parsedParentIds.Length);
+
+        // Resolve user claim or query parameter
+        var targetUserId = userId;
+        if (!targetUserId.HasValue)
+        {
+            var claimsUserId = this.User.Claims.FirstOrDefault(c => c.Type.Equals("Jellyfin-UserId", StringComparison.OrdinalIgnoreCase))?.Value;
+            if (Guid.TryParse(claimsUserId, out var parsedGuid))
+            {
+                targetUserId = parsedGuid;
+            }
+        }
+
+        if (!targetUserId.HasValue)
+        {
+            return this.Unauthorized("User context missing.");
+        }
+
+        var user = this.userManager.GetUserById(targetUserId.Value);
+        if (user == null)
+        {
+            return this.Unauthorized("User not found.");
+        }
+
+        var itemLimit = limit ?? 12;
+
+        ItemFields[]? parsedFields = null;
+        if (!string.IsNullOrWhiteSpace(fields))
+        {
+            parsedFields = fields
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(s => Enum.TryParse<ItemFields>(s, true, out var f) ? (ItemFields?)f : null)
+                .Where(f => f.HasValue)
+                .Select(f => f!.Value)
+                .ToArray();
+        }
+
+        // Configure DTO options. Default to lightweight fields unless client explicitly requests more.
+        var dtoOptions = new DtoOptions(allFields: false)
+        {
+            Fields = parsedFields is { Length: > 0 } ? parsedFields : Array.Empty<ItemFields>(),
+            EnableImages = true,
+            EnableUserData = true,
+            ImageTypeLimit = 1,
+        };
+
+        var result = new Dictionary<Guid, IReadOnlyList<BaseItemDto>>();
+
+        foreach (var parentId in parsedParentIds)
+        {
+            if (parentId == Guid.Empty)
+            {
+                continue;
+            }
+
+            var parentItem = this.libraryManager.GetItemById(parentId);
+            if (parentItem == null)
+            {
+                result[parentId] = Array.Empty<BaseItemDto>();
+                continue;
+            }
+
+            var collectionFolder = parentItem as ICollectionFolder;
+            var collectionType = collectionFolder?.CollectionType;
+            BaseItemKind[] includeItemTypes = Array.Empty<BaseItemKind>();
+
+            if (collectionType == CollectionType.movies)
+            {
+                includeItemTypes = [BaseItemKind.Movie];
+            }
+            else if (collectionType == CollectionType.tvshows)
+            {
+                includeItemTypes = [BaseItemKind.Episode];
+            }
+            else if (collectionType == CollectionType.music)
+            {
+                includeItemTypes = Array.Empty<BaseItemKind>();
+            }
+            else if (collectionType == CollectionType.musicvideos)
+            {
+                includeItemTypes = [BaseItemKind.MusicVideo];
+            }
+
+            try
+            {
+                var list = this.userViewManager.GetLatestItems(
+                    new LatestItemsQuery
+                    {
+                        GroupItems = true,
+                        IncludeItemTypes = includeItemTypes,
+                        IsPlayed = isPlayed ?? (user.HidePlayedInLatest ? false : null),
+                        Limit = itemLimit,
+                        ParentId = parentId,
+                        User = user,
+                    },
+                    dtoOptions);
+
+                if (list == null || list.Count == 0)
+                {
+                    result[parentId] = Array.Empty<BaseItemDto>();
+                    continue;
+                }
+
+                var resolvedItems = new List<BaseItem>(list.Count);
+                var childCounts = new List<int>(list.Count);
+
+                foreach (var tuple in list)
+                {
+                    var children = tuple.Item2;
+                    if ((children == null || children.Count == 0) && tuple.Item1 == null)
+                    {
+                        continue;
+                    }
+
+                    BaseItem item;
+                    int childCount = 0;
+
+                    if (children != null && children.Count > 0)
+                    {
+                        item = children[0];
+                        if (tuple.Item1 is not null && (children.Count > 1 || tuple.Item1 is MusicAlbum || tuple.Item1 is Series))
+                        {
+                            item = tuple.Item1;
+                            childCount = children.Count;
+                        }
+                    }
+                    else
+                    {
+                        item = tuple.Item1!;
+                    }
+
+                    resolvedItems.Add(item);
+                    childCounts.Add(childCount);
+                }
+
+                if (resolvedItems.Count == 0)
+                {
+                    result[parentId] = Array.Empty<BaseItemDto>();
+                    continue;
+                }
+
+                var dtos = this.dtoService.GetBaseItemDtos(resolvedItems, dtoOptions, user);
+                for (int i = 0; i < dtos.Count; i++)
+                {
+                    var dto = dtos[i];
+
+                    // Strip unneeded metadata fields to produce a minimal home card DTO
+                    dto.PremiereDate = null;
+                    dto.EndDate = null;
+                    dto.OfficialRating = null;
+                    dto.CommunityRating = null;
+                    dto.ChannelId = null;
+                    dto.Status = null;
+                    dto.AirDays = null;
+                    dto.ChildCount = null;
+                    dto.Overview = null;
+                    dto.Genres = null;
+                    dto.Taglines = null;
+                    dto.ExternalUrls = null;
+                    dto.People = null;
+                    dto.Studios = null;
+                }
+
+                result[parentId] = dtos;
+            }
+            catch (Exception ex)
+            {
+                this.logger.LogError(ex, "Error processing latest items for parentId {ParentId}", parentId);
+                result[parentId] = Array.Empty<BaseItemDto>();
+            }
+        }
+
+        return this.Ok(result);
+    }
+}

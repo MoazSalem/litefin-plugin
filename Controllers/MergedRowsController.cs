@@ -82,7 +82,7 @@ public class MergedRowsController : ControllerBase
     public ActionResult<QueryResult<BaseItemDto>> GetContinueAndNextUp(
         [FromQuery] Guid? userId,
         [FromQuery] int? limit,
-        [FromQuery] ItemFields[]? fields)
+        [FromQuery] string? fields)
     {
         // Log query details for debugging performance
         this.logger.LogInformation("Processing GetContinueAndNextUp API request for user: {UserId}", userId);
@@ -115,11 +115,22 @@ public class MergedRowsController : ControllerBase
         // Set default row limit size if none is requested by the client
         var rowLimit = limit ?? 12;
 
+        ItemFields[]? parsedFields = null;
+        if (!string.IsNullOrWhiteSpace(fields))
+        {
+            parsedFields = fields
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(s => Enum.TryParse<ItemFields>(s, true, out var f) ? (ItemFields?)f : null)
+                .Where(f => f.HasValue)
+                .Select(f => f!.Value)
+                .ToArray();
+        }
+
         // Configure DTO serialization options. If fields are provided, use them;
         // otherwise default to minimal fields to avoid sending heavy unneeded metadata.
         var dtoOptions = new DtoOptions(allFields: false)
         {
-            Fields = fields is { Length: > 0 } ? fields : [ItemFields.PrimaryImageAspectRatio],
+            Fields = parsedFields is { Length: > 0 } ? parsedFields : [ItemFields.PrimaryImageAspectRatio],
             EnableImages = true,
             EnableUserData = true,
             ImageTypeLimit = 1,
