@@ -4,10 +4,12 @@
 
 #pragma warning disable CA1848 // Use LoggerMessage delegates for performance
 #pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA5394 // Do not use insecure randomness - shuffling display thumbnails only
 
 namespace Litefin.Plugin.Controllers;
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -18,8 +20,10 @@ using Litefin.Plugin.Models;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
@@ -40,6 +44,7 @@ public class ItemsController : ControllerBase
     private readonly IUserManager userManager;
     private readonly IUserViewManager userViewManager;
     private readonly ILibraryManager libraryManager;
+    private readonly IPlaylistManager playlistManager;
     private readonly IDtoService dtoService;
     private readonly ILogger<ItemsController> logger;
 
@@ -49,18 +54,21 @@ public class ItemsController : ControllerBase
     /// <param name="userManager">Instance of the <see cref="IUserManager"/> interface.</param>
     /// <param name="userViewManager">Instance of the <see cref="IUserViewManager"/> interface.</param>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="playlistManager">Instance of the <see cref="IPlaylistManager"/> interface.</param>
     /// <param name="dtoService">Instance of the <see cref="IDtoService"/> interface.</param>
     /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
     public ItemsController(
         IUserManager userManager,
         IUserViewManager userViewManager,
         ILibraryManager libraryManager,
+        IPlaylistManager playlistManager,
         IDtoService dtoService,
         ILoggerFactory loggerFactory)
     {
         this.userManager = userManager;
         this.userViewManager = userViewManager;
         this.libraryManager = libraryManager;
+        this.playlistManager = playlistManager;
         this.dtoService = dtoService;
         this.logger = loggerFactory.CreateLogger<ItemsController>();
     }
@@ -353,6 +361,8 @@ public class ItemsController : ControllerBase
                 BaseItemKind[] includeItemTypes = collectionType switch
                 {
                     CollectionType.music => [BaseItemKind.MusicAlbum, BaseItemKind.Audio],
+                    CollectionType.movies => [BaseItemKind.Movie],
+                    CollectionType.tvshows => [BaseItemKind.Series],
                     CollectionType.boxsets => [BaseItemKind.BoxSet],
                     CollectionType.playlists => [BaseItemKind.Playlist],
                     _ => Array.Empty<BaseItemKind>(),
@@ -378,37 +388,124 @@ public class ItemsController : ControllerBase
                     itemsResult = this.libraryManager.GetItemsResult(query);
                 }
 
-                var candidates = itemsResult.Items
-                    .Where(item => item.HasImage(ImageType.Backdrop) || item.HasImage(ImageType.Primary) || item.HasImage(ImageType.Thumb))
-                    .ToList();
+                var rawItems = itemsResult.Items;
 
-                var dtos = this.dtoService.GetBaseItemDtos(candidates, dtoOptions, user);
-
-                var resolvedUrl = ResolveBestImageUrl(dtos, serverUrl, collectionType?.ToString());
-
-                foreach (var dto in dtos)
+                // Build candidate list (children for boxsets/playlists, raw items otherwise).
+                // NOTE: The Playlists virtual library folder may report CollectionType=null,
+                // so we also check if the returned raw items are themselves containers
+                // (Playlist / BoxSet) that need drilling into.
+                IEnumerable<BaseItem> candidates;
+                var needsChildTraversal = collectionType is CollectionType.boxsets or CollectionType.playlists
+                    || rawItems.Any(i => i is Playlist or BoxSet);
+                if (needsChildTraversal)
                 {
-                    dto.MediaSources = null;
-                    dto.UserData = null;
-                    dto.PremiereDate = null;
-                    dto.EndDate = null;
-                    dto.OfficialRating = null;
-                    dto.CommunityRating = null;
-                    dto.ChannelId = null;
-                    dto.Status = null;
-                    dto.AirDays = null;
-                    dto.ChildCount = null;
-                    dto.Overview = null;
-                    dto.Genres = null;
-                    dto.Taglines = null;
-                    dto.ExternalUrls = null;
-                    dto.People = null;
-                    dto.Studios = null;
+                    candidates = [];
+                    foreach (var container in rawItems)
+                    {
+                        if (container is not Folder childFolder)
+                        {
+                            continue;
+                        }
+
+                        // Try LinkedChildren first (works for BoxSets)
+                        var linkedValid = childFolder.LinkedChildren
+                            .Select(lc => lc.ItemId.HasValue
+                                ? this.libraryManager.GetItemById(lc.ItemId.Value)
+                                : (!string.IsNullOrEmpty(lc.LibraryItemId) && Guid.TryParse(lc.LibraryItemId, out var libGuid)
+                                    ? this.libraryManager.GetItemById(libGuid)
+                                    : null))
+                            .Where(child => child != null)
+                            .Cast<BaseItem>()
+                            .ToList();
+
+                        IEnumerable<BaseItem> children;
+                        if (linkedValid.Count > 0)
+                        {
+                            children = linkedValid;
+                        }
+                        else
+                        {
+                            IEnumerable<BaseItem> playlistChildren;
+                            try
+                            {
+                                if (childFolder is Playlist playlist)
+                                {
+                                    var manageableItems = playlist.GetManageableItems().ToArray();
+                                    playlistChildren = manageableItems.Select(t => t.Item2).Where(item => item != null).ToList();
+                                }
+                                else
+                                {
+                                    playlistChildren = [];
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                this.logger.LogWarning(ex, "Failed to get playlist items via playlistManager for folder {FolderId}", childFolder.Id);
+                                playlistChildren = [];
+                            }
+
+                            if (playlistChildren.Any())
+                            {
+                                children = playlistChildren;
+                            }
+                            else
+                            {
+                                var childResult = childFolder.GetItems(new InternalItemsQuery(user)
+                                {
+                                    Recursive = true,
+                                    Limit = 10,
+                                    DtoOptions = dtoOptions,
+                                });
+                                children = childResult.Items.Where(c => c.Id != childFolder.Id);
+                            }
+                        }
+
+                        candidates = candidates.Concat(children);
+                    }
+                }
+                else
+                {
+                    candidates = rawItems;
+                }
+
+                // Shuffle candidates so a different item can win on each call
+                var shuffled = candidates.OrderBy(_ => Random.Shared.Next()).ToList();
+
+                // Find single best item + matching image type
+                var (bestItem, matchedType) = FindBestItem(shuffled, collectionType?.ToString());
+
+                BaseItemDto? itemDto = null;
+                string? resolvedUrl = null;
+                if (bestItem != null && matchedType.HasValue)
+                {
+                    itemDto = this.dtoService.GetBaseItemDto(bestItem, dtoOptions, user);
+                    itemDto.MediaSources = null;
+                    itemDto.UserData = null;
+                    itemDto.PremiereDate = null;
+                    itemDto.EndDate = null;
+                    itemDto.OfficialRating = null;
+                    itemDto.CommunityRating = null;
+                    itemDto.ChannelId = null;
+                    itemDto.Status = null;
+                    itemDto.AirDays = null;
+                    itemDto.ChildCount = null;
+                    itemDto.Overview = null;
+                    itemDto.Genres = null;
+                    itemDto.Taglines = null;
+                    itemDto.ExternalUrls = null;
+                    itemDto.People = null;
+                    itemDto.Studios = null;
+
+                    var tag = GetImageTag(itemDto, matchedType.Value);
+                    if (tag != null)
+                    {
+                        resolvedUrl = $"{serverUrl}/Items/{bestItem.Id:N}/Images/{matchedType.Value}?tag={tag}&maxWidth=512&quality=80";
+                    }
                 }
 
                 result[parentId.ToString("N")] = new LibraryThumbnailResult
                 {
-                    Items = dtos,
+                    Item = itemDto,
                     ResolvedUrl = resolvedUrl,
                 };
             }
@@ -422,11 +519,11 @@ public class ItemsController : ControllerBase
         return this.Ok(result);
     }
 
-    private static string? ResolveBestImageUrl(IReadOnlyList<BaseItemDto> items, string serverUrl, string? collectionType)
+    private static (BaseItem? Item, ImageType? MatchedType) FindBestItem(IEnumerable<BaseItem> items, string? collectionType)
     {
         ImageType[] priorityOrder = collectionType switch
         {
-            "music" or "playlists" or "boxsets"
+            "music"
                 => [ImageType.Primary, ImageType.Thumb, ImageType.Backdrop],
             "photos" or "homevideos" or "musicvideos" or "livetv"
                 => [ImageType.Primary, ImageType.Thumb],
@@ -437,15 +534,14 @@ public class ItemsController : ControllerBase
         {
             foreach (var item in items)
             {
-                var tag = GetImageTag(item, imageType);
-                if (tag != null)
+                if (item.HasImage(imageType))
                 {
-                    return $"{serverUrl}/Items/{item.Id:N}/Images/{imageType}?tag={tag}&maxWidth=512&quality=80";
+                    return (item, imageType);
                 }
             }
         }
 
-        return null;
+        return (null, null);
     }
 
     private static string? GetImageTag(BaseItemDto item, ImageType imageType)
