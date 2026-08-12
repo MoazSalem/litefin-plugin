@@ -130,7 +130,7 @@ public class MergedRowsController : ControllerBase
         // otherwise default to minimal fields to avoid sending heavy unneeded metadata.
         var dtoOptions = new DtoOptions(allFields: false)
         {
-            Fields = parsedFields is { Length: > 0 } ? parsedFields : [ItemFields.PrimaryImageAspectRatio],
+            Fields = parsedFields is { Length: > 0 } ? parsedFields : [ItemFields.PrimaryImageAspectRatio, ItemFields.MediaSourceCount],
             EnableImages = true,
             EnableUserData = true,
             ImageTypeLimit = 1,

@@ -191,7 +191,9 @@ public class PersonsController : ControllerBase
         {
             Fields = [
                 ItemFields.PrimaryImageAspectRatio,
-                ItemFields.SeriesStudio
+                ItemFields.SeriesStudio,
+                ItemFields.MediaSourceCount,
+                ItemFields.MediaSources
             ],
             EnableImages = true,
             EnableUserData = true,
