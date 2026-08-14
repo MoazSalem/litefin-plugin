@@ -28,4 +28,19 @@ public class SeerrRequest
     /// Gets or sets the requested season numbers for a television series.
     /// </summary>
     public IReadOnlyList<int>? Seasons { get; set; }
+
+    /// <summary>Gets or sets the selected Seerr service identifier.</summary>
+    public int? ServerId { get; set; }
+
+    /// <summary>Gets or sets the selected quality profile identifier.</summary>
+    public int? ProfileId { get; set; }
+
+    /// <summary>Gets or sets the selected root folder.</summary>
+    public string? RootFolder { get; set; }
+
+    /// <summary>Gets or sets the optional Sonarr language profile identifier.</summary>
+    public int? LanguageProfileId { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether the 4K service is requested.</summary>
+    public bool Is4K { get; set; }
 }

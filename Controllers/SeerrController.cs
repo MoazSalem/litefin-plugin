@@ -245,16 +245,174 @@ public class SeerrController : ControllerBase
         {
             ["mediaType"] = isTv ? "tv" : "movie",
             ["mediaId"] = request.MediaId,
-            ["userId"] = seerrUserId.Value,
+            ["is4k"] = request.Is4K,
         };
+
+        if (request.ServerId.HasValue)
+        {
+            payload["serverId"] = request.ServerId.Value;
+        }
+
+        var usesAdvancedOptions = request.ServerId.HasValue
+            || request.ProfileId.HasValue
+            || !string.IsNullOrWhiteSpace(request.RootFolder)
+            || request.LanguageProfileId.HasValue;
+        if (usesAdvancedOptions
+            && !await this.HasSeerrPermissionAsync(seerrUserId.Value, 8192, cancellationToken).ConfigureAwait(false))
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden, new { message = "Advanced request permission is required." });
+        }
+
+        if (request.ProfileId.HasValue)
+        {
+            payload["profileId"] = request.ProfileId.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.RootFolder))
+        {
+            payload["rootFolder"] = request.RootFolder;
+        }
+
+        if (request.LanguageProfileId.HasValue)
+        {
+            payload["languageProfileId"] = request.LanguageProfileId.Value;
+        }
 
         if (isTv)
         {
             payload["seasons"] = seasons!;
         }
 
-        return await this.ProxyAsync(HttpMethod.Post, "/request", payload, cancellationToken).ConfigureAwait(false);
+        return await this.ProxyAsync(HttpMethod.Post, "/request", payload, cancellationToken, seerrUserId).ConfigureAwait(false);
     }
+
+    /// <summary>Gets request services for a media type.</summary>
+    /// <param name="mediaType">The Seerr media type.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The configured services.</returns>
+    [HttpGet("Services/{mediaType}")]
+    public async Task<IActionResult> GetServices([FromRoute] string mediaType, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mediaType);
+        var service = GetServiceName(mediaType);
+        if (service == null)
+        {
+            return this.BadRequest(new { message = "MediaType must be movie or tv." });
+        }
+
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return await this.ProxyAsync(HttpMethod.Get, $"/service/{service}", null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
+    /// <summary>Gets the authenticated user's public Seerr capabilities.</summary>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The permission bitmask used to shape the client UI.</returns>
+    [HttpGet("User")]
+    public async Task<IActionResult> GetUserCapabilities(CancellationToken cancellationToken)
+    {
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        using var response = await this.SendAsync(HttpMethod.Get, "/auth/me", null, cancellationToken, userId).ConfigureAwait(false);
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        var permissions = document.RootElement.TryGetProperty("permissions", out var value) && value.TryGetInt32(out var mask) ? mask : 0;
+        return this.StatusCode((int)response.StatusCode, new { permissions });
+    }
+
+    /// <summary>Gets profiles and folders for a request service.</summary>
+    /// <param name="mediaType">The Seerr media type.</param>
+    /// <param name="serverId">The configured service identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The service profiles and folders.</returns>
+    [HttpGet("Services/{mediaType}/{serverId:int}")]
+    public async Task<IActionResult> GetServiceDetails([FromRoute] string mediaType, [FromRoute] int serverId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mediaType);
+        var service = GetServiceName(mediaType);
+        if (service == null)
+        {
+            return this.BadRequest(new { message = "MediaType must be movie or tv." });
+        }
+
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return await this.ProxyAsync(HttpMethod.Get, $"/service/{service}/{serverId.ToString(CultureInfo.InvariantCulture)}", null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
+    /// <summary>Adds a title to the authenticated user's Seerr watchlist.</summary>
+    /// <param name="payload">The validated watchlist payload forwarded to Seerr.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The created watchlist item.</returns>
+    [HttpPost("Watchlist")]
+    public async Task<IActionResult> AddToWatchlist([FromBody] JsonElement payload, CancellationToken cancellationToken)
+    {
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return await this.ProxyAsync(HttpMethod.Post, "/watchlist", payload, cancellationToken, userId).ConfigureAwait(false);
+    }
+
+    /// <summary>Gets the authenticated user's Seerr watchlist.</summary>
+    /// <param name="page">The result page.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The user's watchlist.</returns>
+    [HttpGet("Watchlist")]
+    public async Task<IActionResult> GetWatchlist([FromQuery] int page = 1, CancellationToken cancellationToken = default)
+    {
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var path = $"/user/{userId.Value.ToString(CultureInfo.InvariantCulture)}/watchlist?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}";
+        return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes a title from the authenticated user's Seerr watchlist.</summary>
+    /// <param name="mediaType">The Seerr media type.</param>
+    /// <param name="tmdbId">The TMDB media identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>An empty successful response.</returns>
+    [HttpDelete("Watchlist/{mediaType}/{tmdbId:int}")]
+    public async Task<IActionResult> RemoveFromWatchlist([FromRoute] string mediaType, [FromRoute] int tmdbId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mediaType);
+        var normalizedMediaType = mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
+        if (GetServiceName(mediaType) == null)
+        {
+            return this.BadRequest();
+        }
+
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var path = $"/watchlist/{tmdbId.ToString(CultureInfo.InvariantCulture)}?mediaType={normalizedMediaType}";
+        return await this.ProxyAsync(HttpMethod.Delete, path, null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
+    private static string? GetServiceName(string mediaType)
+        => mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "sonarr" :
+            mediaType.Equals("movie", StringComparison.OrdinalIgnoreCase) ? "radarr" : null;
 
     private static bool TryGetConfiguration(out string baseUrl, out string apiKey)
     {
@@ -284,7 +442,8 @@ public class SeerrController : ControllerBase
         HttpMethod method,
         string path,
         object? body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seerrUserId = null)
     {
         if (!TryGetConfiguration(out _, out _))
         {
@@ -293,7 +452,7 @@ public class SeerrController : ControllerBase
 
         try
         {
-            using var response = await this.SendAsync(method, path, body, cancellationToken).ConfigureAwait(false);
+            using var response = await this.SendAsync(method, path, body, cancellationToken, seerrUserId).ConfigureAwait(false);
             var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var contentType = response.Content.Headers.ContentType?.ToString() ?? MediaTypeNames.Application.Json;
             return new ContentResult
@@ -319,7 +478,8 @@ public class SeerrController : ControllerBase
         HttpMethod method,
         string path,
         object? body,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seerrUserId = null)
     {
         if (!TryGetConfiguration(out var baseUrl, out var apiKey))
         {
@@ -330,6 +490,10 @@ public class SeerrController : ControllerBase
         using var request = new HttpRequestMessage(method, $"{baseUrl}/api/v1{path}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
         request.Headers.Add("X-Api-Key", apiKey);
+        if (seerrUserId.HasValue)
+        {
+            request.Headers.Add("X-Api-User", seerrUserId.Value.ToString(CultureInfo.InvariantCulture));
+        }
 
         if (body != null)
         {
@@ -416,6 +580,33 @@ public class SeerrController : ControllerBase
         }
 
         return null;
+    }
+
+    private Task<int?> ResolveAuthenticatedSeerrUserIdAsync(CancellationToken cancellationToken)
+    {
+        var jellyfinUserId = this.GetAuthenticatedUserId();
+        return jellyfinUserId.HasValue
+            ? this.ResolveSeerrUserIdAsync(jellyfinUserId.Value, cancellationToken)
+            : Task.FromResult<int?>(null);
+    }
+
+    private async Task<bool> HasSeerrPermissionAsync(int seerrUserId, int permission, CancellationToken cancellationToken)
+    {
+        using var response = await this.SendAsync(HttpMethod.Get, "/auth/me", null, cancellationToken, seerrUserId).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return false;
+        }
+
+        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (!document.RootElement.TryGetProperty("permissions", out var value) || !value.TryGetInt32(out var permissions))
+        {
+            return false;
+        }
+
+        const int adminPermission = 2;
+        return (permissions & adminPermission) != 0 || (permissions & permission) != 0;
     }
 
     private Guid? GetAuthenticatedUserId()
