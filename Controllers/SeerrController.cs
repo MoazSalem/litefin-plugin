@@ -286,6 +286,24 @@ public class SeerrController : ControllerBase
         return await this.ProxyAsync(HttpMethod.Post, "/request", payload, cancellationToken, seerrUserId).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Cancels a Seerr request for the authenticated Jellyfin user.
+    /// </summary>
+    /// <param name="requestId">The Seerr request identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>An empty successful response.</returns>
+    [HttpDelete("Requests/{requestId:int}")]
+    public async Task<IActionResult> CancelRequest([FromRoute] int requestId, CancellationToken cancellationToken)
+    {
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        return await this.ProxyAsync(HttpMethod.Delete, $"/request/{requestId.ToString(CultureInfo.InvariantCulture)}", null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
     /// <summary>Gets request services for a media type.</summary>
     /// <param name="mediaType">The Seerr media type.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
