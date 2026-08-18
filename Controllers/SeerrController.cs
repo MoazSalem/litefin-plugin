@@ -179,6 +179,34 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
 
     /// <summary>
+    /// Gets similar movies from Seerr.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB movie identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Movie/{tmdbId:int}/Similar")]
+    public Task<IActionResult> GetMovieSimilar(
+        [FromRoute] int tmdbId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/similar?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
+    /// Gets recommended movies from Seerr.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB movie identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Movie/{tmdbId:int}/Recommendations")]
+    public Task<IActionResult> GetMovieRecommendations(
+        [FromRoute] int tmdbId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
     /// Gets details and seasons for a Seerr television series.
     /// </summary>
     /// <param name="tmdbId">The TMDB series identifier.</param>
@@ -187,6 +215,34 @@ public class SeerrController : ControllerBase
     [HttpGet("Tv/{tmdbId:int}")]
     public Task<IActionResult> GetTvDetails([FromRoute] int tmdbId, CancellationToken cancellationToken)
         => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
+    /// Gets similar television series from Seerr.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB series identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Tv/{tmdbId:int}/Similar")]
+    public Task<IActionResult> GetTvSimilar(
+        [FromRoute] int tmdbId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/similar?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
+    /// Gets recommended television series from Seerr.
+    /// </summary>
+    /// <param name="tmdbId">The TMDB series identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Tv/{tmdbId:int}/Recommendations")]
+    public Task<IActionResult> GetTvRecommendations(
+        [FromRoute] int tmdbId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
 
     /// <summary>
     /// Creates a Seerr request for the authenticated Jellyfin user.
