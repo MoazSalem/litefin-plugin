@@ -304,6 +304,33 @@ public class SeerrController : ControllerBase
         return await this.ProxyAsync(HttpMethod.Delete, $"/request/{requestId.ToString(CultureInfo.InvariantCulture)}", null, cancellationToken, userId).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Gets combined ratings for a media item.
+    /// </summary>
+    /// <param name="mediaType">The Seerr media type (movie or tv).</param>
+    /// <param name="tmdbId">The TMDB identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The combined ratings payload.</returns>
+    [HttpGet("Ratings/{mediaType}/{tmdbId:int}")]
+    public async Task<IActionResult> GetRatingsCombined([FromRoute] string mediaType, [FromRoute] int tmdbId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mediaType);
+        var isTv = mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase);
+        if (!mediaType.Equals("movie", StringComparison.OrdinalIgnoreCase) && !isTv)
+        {
+            return this.BadRequest(new { message = "MediaType must be movie or tv." });
+        }
+
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            return this.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var routeType = isTv ? "tv" : "movie";
+        return await this.ProxyAsync(HttpMethod.Get, $"/{routeType}/{tmdbId.ToString(CultureInfo.InvariantCulture)}/ratingscombined", null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
     /// <summary>Gets request services for a media type.</summary>
     /// <param name="mediaType">The Seerr media type.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
