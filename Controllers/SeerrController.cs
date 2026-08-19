@@ -152,6 +152,44 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync($"/discover/tv?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
 
     /// <summary>
+    /// Gets upcoming movies from Seerr.
+    /// </summary>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Movies/Upcoming")]
+    public Task<IActionResult> GetUpcomingMovies([FromQuery] int page = 1, CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/discover/movies/upcoming?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
+    /// Gets upcoming television series from Seerr.
+    /// </summary>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Tv/Upcoming")]
+    public Task<IActionResult> GetUpcomingTv([FromQuery] int page = 1, CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/discover/tv/upcoming?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
+    /// Gets movie genre slider items from Seerr.
+    /// </summary>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/GenreSlider/Movie")]
+    public Task<IActionResult> GetGenreSliderMovie(CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync("/discover/genreslider/movie", cancellationToken);
+
+    /// <summary>
+    /// Gets tv genre slider items from Seerr.
+    /// </summary>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/GenreSlider/Tv")]
+    public Task<IActionResult> GetGenreSliderTv(CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync("/discover/genreslider/tv", cancellationToken);
+
+    /// <summary>
     /// Searches the Seerr catalogue.
     /// </summary>
     /// <param name="query">The search query.</param>
