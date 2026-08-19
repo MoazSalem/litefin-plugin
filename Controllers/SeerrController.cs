@@ -262,6 +262,21 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync($"/request?take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&skip={Math.Max(0, skip).ToString(CultureInfo.InvariantCulture)}&filter={Uri.EscapeDataString(filter)}", cancellationToken);
 
     /// <summary>
+    /// Gets recently added media items from Seerr.
+    /// </summary>
+    /// <param name="take">Number of items to return.</param>
+    /// <param name="skip">Number of items to skip.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The recently added media items payload.</returns>
+    [HttpGet("Media")]
+    [HttpGet("RecentlyAdded")]
+    public Task<IActionResult> GetRecentlyAdded(
+        [FromQuery] int take = 20,
+        [FromQuery] int skip = 0,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/media?filter=allavailable&sort=mediaAdded&take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&skip={Math.Max(0, skip).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
     /// Creates a Seerr request for the authenticated Jellyfin user.
     /// </summary>
     /// <param name="request">The media request.</param>
