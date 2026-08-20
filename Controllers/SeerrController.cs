@@ -132,44 +132,120 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync("/discover/trending", cancellationToken);
 
     /// <summary>
-    /// Gets popular movies from Seerr.
+    /// Gets popular movies from Seerr, optionally filtered by genre, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
+    /// <param name="genre">The optional genre identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies")]
-    public Task<IActionResult> GetMovies([FromQuery] int page = 1, CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/discover/movies?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+    public Task<IActionResult> GetMovies(
+        [FromQuery] int page = 1,
+        [FromQuery] int? genre = null,
+        CancellationToken cancellationToken = default)
+    {
+        var basePath = genre.HasValue
+            ? $"/discover/movies?genre={genre.Value.ToString(CultureInfo.InvariantCulture)}"
+            : "/discover/movies";
+
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
+    }
 
     /// <summary>
-    /// Gets popular television series from Seerr.
+    /// Gets movies by genre from Seerr, merging 5 upstream pages.
     /// </summary>
+    /// <param name="genreId">The genre identifier.</param>
     /// <param name="page">The page number.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
-    [HttpGet("Discover/Tv")]
-    public Task<IActionResult> GetTv([FromQuery] int page = 1, CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/discover/tv?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+    [HttpGet("Discover/Movies/Genre/{genreId:int}")]
+    public Task<IActionResult> GetMoviesByGenre(
+        [FromRoute] int genreId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync($"/discover/movies?genre={genreId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
 
     /// <summary>
-    /// Gets upcoming movies from Seerr.
+    /// Gets movies by studio from Seerr, merging 5 upstream pages.
+    /// </summary>
+    /// <param name="studioId">The studio identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Movies/Studio/{studioId:int}")]
+    public Task<IActionResult> GetMoviesByStudio(
+        [FromRoute] int studioId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync($"/discover/movies/studio/{studioId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+
+    /// <summary>
+    /// Gets popular television series from Seerr, optionally filtered by genre, merging 5 upstream pages.
+    /// </summary>
+    /// <param name="page">The page number.</param>
+    /// <param name="genre">The optional genre identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Tv")]
+    public Task<IActionResult> GetTv(
+        [FromQuery] int page = 1,
+        [FromQuery] int? genre = null,
+        CancellationToken cancellationToken = default)
+    {
+        var basePath = genre.HasValue
+            ? $"/discover/tv?genre={genre.Value.ToString(CultureInfo.InvariantCulture)}"
+            : "/discover/tv";
+
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets television series by genre from Seerr, merging 5 upstream pages.
+    /// </summary>
+    /// <param name="genreId">The genre identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Tv/Genre/{genreId:int}")]
+    public Task<IActionResult> GetTvByGenre(
+        [FromRoute] int genreId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync($"/discover/tv?genre={genreId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+
+    /// <summary>
+    /// Gets television series by network from Seerr, merging 5 upstream pages.
+    /// </summary>
+    /// <param name="networkId">The network identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Tv/Network/{networkId:int}")]
+    public Task<IActionResult> GetTvByNetwork(
+        [FromRoute] int networkId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync($"/discover/tv/network/{networkId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+
+    /// <summary>
+    /// Gets upcoming movies from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Upcoming")]
     public Task<IActionResult> GetUpcomingMovies([FromQuery] int page = 1, CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/discover/movies/upcoming?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        => this.ProxyGetMerged5PagesAsync("/discover/movies/upcoming", page, cancellationToken);
 
     /// <summary>
-    /// Gets upcoming television series from Seerr.
+    /// Gets upcoming television series from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Upcoming")]
     public Task<IActionResult> GetUpcomingTv([FromQuery] int page = 1, CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/discover/tv/upcoming?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        => this.ProxyGetMerged5PagesAsync("/discover/tv/upcoming", page, cancellationToken);
 
     /// <summary>
     /// Gets movie genre slider items from Seerr.
@@ -604,6 +680,92 @@ public class SeerrController : ControllerBase
             && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
                 || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
             && !string.IsNullOrWhiteSpace(apiKey);
+    }
+
+    /// <summary>
+    /// Proxies a GET request to Seerr by fetching 5 consecutive upstream pages concurrently and merging them into a single 100-item page payload.
+    /// </summary>
+    /// <param name="pathWithoutPage">The API path without the page query parameter.</param>
+    /// <param name="litefinPage">The Litefin page number (where page 1 maps to Seerr pages 1-5, page 2 maps to 6-10, etc.).</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The aggregated Seerr response payload.</returns>
+    private async Task<IActionResult> ProxyGetMerged5PagesAsync(
+        string pathWithoutPage,
+        int litefinPage,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetConfiguration(out _, out _))
+        {
+            return this.StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Seerr is not configured." });
+        }
+
+        var normalizedPage = Math.Max(1, litefinPage);
+        var startSeerrPage = ((normalizedPage - 1) * 5) + 1;
+        var separator = pathWithoutPage.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+
+        var fetchTasks = Enumerable.Range(0, 5).Select(async offset =>
+        {
+            var targetSeerrPage = startSeerrPage + offset;
+            var targetPath = $"{pathWithoutPage}{separator}page={targetSeerrPage.ToString(CultureInfo.InvariantCulture)}";
+            try
+            {
+                using var response = await this.SendAsync(HttpMethod.Get, targetPath, null, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                return doc.RootElement.Clone();
+            }
+            catch (HttpRequestException ex)
+            {
+                this.logger.LogWarning(ex, "Failed to fetch Seerr page {TargetPage} for path {Path}", targetSeerrPage, pathWithoutPage);
+                return (JsonElement?)null;
+            }
+            catch (TaskCanceledException ex)
+            {
+                this.logger.LogWarning(ex, "Timed out fetching Seerr page {TargetPage} for path {Path}", targetSeerrPage, pathWithoutPage);
+                return (JsonElement?)null;
+            }
+        });
+
+        var results = await Task.WhenAll(fetchTasks).ConfigureAwait(false);
+        var validDocs = results.Where(d => d.HasValue && d.Value.ValueKind == JsonValueKind.Object).Select(d => d!.Value).ToList();
+
+        if (validDocs.Count == 0)
+        {
+            return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to reach Seerr." });
+        }
+
+        var firstDoc = validDocs[0];
+        var upstreamTotalPages = firstDoc.TryGetProperty("totalPages", out var tpProp) && tpProp.TryGetInt32(out var tpVal) ? tpVal : 1;
+        var upstreamTotalResults = firstDoc.TryGetProperty("totalResults", out var trProp) && trProp.TryGetInt32(out var trVal) ? trVal : 0;
+
+        var mergedResults = new List<JsonElement>();
+        foreach (var doc in validDocs)
+        {
+            if (doc.TryGetProperty("results", out var resProp) && resProp.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in resProp.EnumerateArray())
+                {
+                    mergedResults.Add(item.Clone());
+                }
+            }
+        }
+
+        var mergedTotalPages = (int)Math.Ceiling(upstreamTotalPages / 5.0);
+
+        var mergedPayload = new Dictionary<string, object>
+        {
+            ["page"] = normalizedPage,
+            ["totalPages"] = Math.Max(1, mergedTotalPages),
+            ["totalResults"] = upstreamTotalResults,
+            ["results"] = mergedResults,
+        };
+
+        return this.Ok(mergedPayload);
     }
 
     private async Task<IActionResult> ProxyGetAsync(string path, CancellationToken cancellationToken)
