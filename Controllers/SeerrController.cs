@@ -283,6 +283,16 @@ public class SeerrController : ControllerBase
     }
 
     /// <summary>
+    /// Gets details for a Seerr collection.
+    /// </summary>
+    /// <param name="collectionId">The collection identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Collection/{collectionId:int}")]
+    public Task<IActionResult> GetCollectionDetails([FromRoute] int collectionId, CancellationToken cancellationToken)
+        => this.ProxyGetAsync($"/collection/{collectionId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
     /// Gets details for a Seerr movie.
     /// </summary>
     /// <param name="tmdbId">The TMDB movie identifier.</param>
