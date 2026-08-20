@@ -132,20 +132,40 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync("/discover/trending", cancellationToken);
 
     /// <summary>
-    /// Gets popular movies from Seerr, optionally filtered by genre, merging 5 upstream pages.
+    /// Gets popular movies from Seerr, optionally filtered by genre, keywords, or studio, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
     /// <param name="genre">The optional genre identifier.</param>
+    /// <param name="keywords">The optional keywords identifier.</param>
+    /// <param name="studio">The optional studio identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies")]
     public Task<IActionResult> GetMovies(
         [FromQuery] int page = 1,
         [FromQuery] int? genre = null,
+        [FromQuery] int? keywords = null,
+        [FromQuery] int? studio = null,
         CancellationToken cancellationToken = default)
     {
-        var basePath = genre.HasValue
-            ? $"/discover/movies?genre={genre.Value.ToString(CultureInfo.InvariantCulture)}"
+        var queryParams = new List<string>();
+        if (genre.HasValue)
+        {
+            queryParams.Add($"genre={genre.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (keywords.HasValue)
+        {
+            queryParams.Add($"keywords={keywords.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (studio.HasValue)
+        {
+            queryParams.Add($"studio={studio.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        var basePath = queryParams.Count > 0
+            ? $"/discover/movies?{string.Join("&", queryParams)}"
             : "/discover/movies";
 
         return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
@@ -166,6 +186,20 @@ public class SeerrController : ControllerBase
         => this.ProxyGetMerged5PagesAsync($"/discover/movies?genre={genreId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
 
     /// <summary>
+    /// Gets movies by keyword from Seerr, merging 5 upstream pages.
+    /// </summary>
+    /// <param name="keywordId">The keyword identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Movies/Keyword/{keywordId:int}")]
+    public Task<IActionResult> GetMoviesByKeyword(
+        [FromRoute] int keywordId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync($"/discover/movies?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+
+    /// <summary>
     /// Gets movies by studio from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="studioId">The studio identifier.</param>
@@ -180,20 +214,40 @@ public class SeerrController : ControllerBase
         => this.ProxyGetMerged5PagesAsync($"/discover/movies/studio/{studioId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
 
     /// <summary>
-    /// Gets popular television series from Seerr, optionally filtered by genre, merging 5 upstream pages.
+    /// Gets popular television series from Seerr, optionally filtered by genre, keywords, or network, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
     /// <param name="genre">The optional genre identifier.</param>
+    /// <param name="keywords">The optional keywords identifier.</param>
+    /// <param name="network">The optional network identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv")]
     public Task<IActionResult> GetTv(
         [FromQuery] int page = 1,
         [FromQuery] int? genre = null,
+        [FromQuery] int? keywords = null,
+        [FromQuery] int? network = null,
         CancellationToken cancellationToken = default)
     {
-        var basePath = genre.HasValue
-            ? $"/discover/tv?genre={genre.Value.ToString(CultureInfo.InvariantCulture)}"
+        var queryParams = new List<string>();
+        if (genre.HasValue)
+        {
+            queryParams.Add($"genre={genre.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (keywords.HasValue)
+        {
+            queryParams.Add($"keywords={keywords.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        if (network.HasValue)
+        {
+            queryParams.Add($"network={network.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        var basePath = queryParams.Count > 0
+            ? $"/discover/tv?{string.Join("&", queryParams)}"
             : "/discover/tv";
 
         return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
@@ -212,6 +266,20 @@ public class SeerrController : ControllerBase
         [FromQuery] int page = 1,
         CancellationToken cancellationToken = default)
         => this.ProxyGetMerged5PagesAsync($"/discover/tv?genre={genreId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+
+    /// <summary>
+    /// Gets television series by keyword from Seerr, merging 5 upstream pages.
+    /// </summary>
+    /// <param name="keywordId">The keyword identifier.</param>
+    /// <param name="page">The page number.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Discover/Tv/Keyword/{keywordId:int}")]
+    public Task<IActionResult> GetTvByKeyword(
+        [FromRoute] int keywordId,
+        [FromQuery] int page = 1,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync($"/discover/tv?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
 
     /// <summary>
     /// Gets television series by network from Seerr, merging 5 upstream pages.
