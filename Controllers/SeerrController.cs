@@ -361,6 +361,27 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync($"/collection/{collectionId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
 
     /// <summary>
+    /// Gets details for a person from Seerr.
+    /// </summary>
+    /// <param name="personId">The TMDB person identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Person/{personId:int}")]
+    public Task<IActionResult> GetPersonDetails([FromRoute] int personId, CancellationToken cancellationToken)
+        => this.ProxyGetAsync($"/person/{personId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+
+    /// <summary>
+    /// Gets combined credits (cast and crew filmography) for a person from Seerr.
+    /// </summary>
+    /// <param name="personId">The TMDB person identifier.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Person/{personId:int}/CombinedCredits")]
+    [HttpGet("Person/{personId:int}/combined_credits")]
+    public Task<IActionResult> GetPersonCombinedCredits([FromRoute] int personId, CancellationToken cancellationToken)
+        => this.ProxyGetAsync($"/person/{personId.ToString(CultureInfo.InvariantCulture)}/combined_credits", cancellationToken);
+
+    /// <summary>
     /// Gets details for a Seerr movie.
     /// </summary>
     /// <param name="tmdbId">The TMDB movie identifier.</param>
