@@ -138,6 +138,7 @@ public class SeerrController : ControllerBase
     /// <param name="genre">The optional genre identifier.</param>
     /// <param name="keywords">The optional keywords identifier.</param>
     /// <param name="studio">The optional studio identifier.</param>
+    /// <param name="sortBy">The optional TMDB sort expression (e.g. popularity.desc, release_date.desc, vote_average.desc, original_title.asc).</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies")]
@@ -146,6 +147,7 @@ public class SeerrController : ControllerBase
         [FromQuery] int? genre = null,
         [FromQuery] int? keywords = null,
         [FromQuery] int? studio = null,
+        [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new List<string>();
@@ -164,6 +166,11 @@ public class SeerrController : ControllerBase
             queryParams.Add($"studio={studio.Value.ToString(CultureInfo.InvariantCulture)}");
         }
 
+        if (!string.IsNullOrWhiteSpace(sortBy))
+        {
+            queryParams.Add($"sortBy={Uri.EscapeDataString(sortBy)}");
+        }
+
         var basePath = queryParams.Count > 0
             ? $"/discover/movies?{string.Join("&", queryParams)}"
             : "/discover/movies";
@@ -176,28 +183,38 @@ public class SeerrController : ControllerBase
     /// </summary>
     /// <param name="genreId">The genre identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="sortBy">The optional sort expression.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Genre/{genreId:int}")]
     public Task<IActionResult> GetMoviesByGenre(
         [FromRoute] int genreId,
         [FromQuery] int page = 1,
+        [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync($"/discover/movies?genre={genreId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+    {
+        var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
+        return this.ProxyGetMerged5PagesAsync($"/discover/movies?genre={genreId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+    }
 
     /// <summary>
     /// Gets movies by keyword from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="keywordId">The keyword identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="sortBy">The optional sort expression.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Keyword/{keywordId:int}")]
     public Task<IActionResult> GetMoviesByKeyword(
         [FromRoute] int keywordId,
         [FromQuery] int page = 1,
+        [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync($"/discover/movies?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+    {
+        var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
+        return this.ProxyGetMerged5PagesAsync($"/discover/movies?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+    }
 
     /// <summary>
     /// Gets movies by studio from Seerr, merging 5 upstream pages.
@@ -220,6 +237,7 @@ public class SeerrController : ControllerBase
     /// <param name="genre">The optional genre identifier.</param>
     /// <param name="keywords">The optional keywords identifier.</param>
     /// <param name="network">The optional network identifier.</param>
+    /// <param name="sortBy">The optional TMDB sort expression (e.g. popularity.desc, first_air_date.desc, vote_average.desc, original_title.asc).</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv")]
@@ -228,6 +246,7 @@ public class SeerrController : ControllerBase
         [FromQuery] int? genre = null,
         [FromQuery] int? keywords = null,
         [FromQuery] int? network = null,
+        [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new List<string>();
@@ -246,6 +265,11 @@ public class SeerrController : ControllerBase
             queryParams.Add($"network={network.Value.ToString(CultureInfo.InvariantCulture)}");
         }
 
+        if (!string.IsNullOrWhiteSpace(sortBy))
+        {
+            queryParams.Add($"sortBy={Uri.EscapeDataString(sortBy)}");
+        }
+
         var basePath = queryParams.Count > 0
             ? $"/discover/tv?{string.Join("&", queryParams)}"
             : "/discover/tv";
@@ -258,28 +282,38 @@ public class SeerrController : ControllerBase
     /// </summary>
     /// <param name="genreId">The genre identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="sortBy">The optional sort expression.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Genre/{genreId:int}")]
     public Task<IActionResult> GetTvByGenre(
         [FromRoute] int genreId,
         [FromQuery] int page = 1,
+        [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync($"/discover/tv?genre={genreId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+    {
+        var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
+        return this.ProxyGetMerged5PagesAsync($"/discover/tv?genre={genreId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+    }
 
     /// <summary>
     /// Gets television series by keyword from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="keywordId">The keyword identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="sortBy">The optional sort expression.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Keyword/{keywordId:int}")]
     public Task<IActionResult> GetTvByKeyword(
         [FromRoute] int keywordId,
         [FromQuery] int page = 1,
+        [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync($"/discover/tv?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+    {
+        var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
+        return this.ProxyGetMerged5PagesAsync($"/discover/tv?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+    }
 
     /// <summary>
     /// Gets television series by network from Seerr, merging 5 upstream pages.
