@@ -649,6 +649,11 @@ public class SeerrController : ControllerBase
             payload["languageProfileId"] = request.LanguageProfileId.Value;
         }
 
+        if (request.UserId.HasValue)
+        {
+            payload["userId"] = request.UserId.Value;
+        }
+
         if (isTv)
         {
             payload["seasons"] = seasons!;
@@ -678,34 +683,28 @@ public class SeerrController : ControllerBase
     /// <summary>
     /// Gets combined ratings for a media item.
     /// </summary>
-    /// <param name="mediaType">The Seerr media type (movie or tv).</param>
-    /// <param name="tmdbId">The TMDB identifier.</param>
+    /// <param name="mediaType">The media type.</param>
+    /// <param name="tmdbId">The TMDB media identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
-    /// <returns>The combined ratings payload.</returns>
+    /// <returns>The ratings response.</returns>
     [HttpGet("Ratings/{mediaType}/{tmdbId:int}")]
     public async Task<IActionResult> GetRatingsCombined([FromRoute] string mediaType, [FromRoute] int tmdbId, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(mediaType);
-        var isTv = mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase);
-        if (!mediaType.Equals("movie", StringComparison.OrdinalIgnoreCase) && !isTv)
-        {
-            return this.BadRequest(new { message = "MediaType must be movie or tv." });
-        }
-
+        var routeType = mediaType.Equals("tv", StringComparison.OrdinalIgnoreCase) ? "tv" : "movie";
         var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
         if (!userId.HasValue)
         {
             return this.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        var routeType = isTv ? "tv" : "movie";
         return await this.ProxyAsync(HttpMethod.Get, $"/{routeType}/{tmdbId.ToString(CultureInfo.InvariantCulture)}/ratingscombined", null, cancellationToken, userId).ConfigureAwait(false);
     }
 
-    /// <summary>Gets request services for a media type.</summary>
+    /// <summary>Gets services configured in Seerr.</summary>
     /// <param name="mediaType">The Seerr media type.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
-    /// <returns>The configured services.</returns>
+    /// <returns>The services list.</returns>
     [HttpGet("Services/{mediaType}")]
     public async Task<IActionResult> GetServices([FromRoute] string mediaType, CancellationToken cancellationToken)
     {
@@ -743,6 +742,20 @@ public class SeerrController : ControllerBase
         var permissions = document.RootElement.TryGetProperty("permissions", out var value) && value.TryGetInt32(out var mask) ? mask : 0;
         return this.StatusCode((int)response.StatusCode, new { permissions });
     }
+
+    /// <summary>
+    /// Gets the list of users from Seerr.
+    /// </summary>
+    /// <param name="take">The number of users to retrieve.</param>
+    /// <param name="sort">The sort order.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr user list response.</returns>
+    [HttpGet("Users")]
+    public Task<IActionResult> GetUsers(
+        [FromQuery] int take = 1000,
+        [FromQuery] string sort = "displayname",
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync($"/user?take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&sort={Uri.EscapeDataString(sort)}", cancellationToken);
 
     /// <summary>Gets profiles and folders for a request service.</summary>
     /// <param name="mediaType">The Seerr media type.</param>

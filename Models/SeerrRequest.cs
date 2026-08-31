@@ -43,4 +43,7 @@ public class SeerrRequest
 
     /// <summary>Gets or sets a value indicating whether the 4K service is requested.</summary>
     public bool Is4K { get; set; }
+
+    /// <summary>Gets or sets the optional requested user identifier.</summary>
+    public int? UserId { get; set; }
 }
