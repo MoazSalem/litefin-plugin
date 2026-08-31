@@ -132,10 +132,13 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync("/discover/trending", cancellationToken);
 
     /// <summary>
-    /// Gets popular movies from Seerr, optionally filtered by genre, keywords, or studio, merging 5 upstream pages.
+    /// Gets popular movies from Seerr, optionally filtered by genre, language, certification, keywords, or studio, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
-    /// <param name="genre">The optional genre identifier.</param>
+    /// <param name="genre">The optional comma-separated genre identifier(s).</param>
+    /// <param name="language">The optional pipe-separated language identifier(s).</param>
+    /// <param name="certification">The optional pipe-separated certification rating(s).</param>
+    /// <param name="certificationCountry">The optional certification country code (defaults to US).</param>
     /// <param name="keywords">The optional keywords identifier.</param>
     /// <param name="studio">The optional studio identifier.</param>
     /// <param name="sortBy">The optional TMDB sort expression (e.g. popularity.desc, release_date.desc, vote_average.desc, original_title.asc).</param>
@@ -144,16 +147,31 @@ public class SeerrController : ControllerBase
     [HttpGet("Discover/Movies")]
     public Task<IActionResult> GetMovies(
         [FromQuery] int page = 1,
-        [FromQuery] int? genre = null,
+        [FromQuery] string? genre = null,
+        [FromQuery] string? language = null,
+        [FromQuery] string? certification = null,
+        [FromQuery] string? certificationCountry = null,
         [FromQuery] int? keywords = null,
         [FromQuery] int? studio = null,
         [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new List<string>();
-        if (genre.HasValue)
+        if (!string.IsNullOrWhiteSpace(genre))
         {
-            queryParams.Add($"genre={genre.Value.ToString(CultureInfo.InvariantCulture)}");
+            queryParams.Add($"genre={Uri.EscapeDataString(genre)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            queryParams.Add($"language={Uri.EscapeDataString(language)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(certification))
+        {
+            var country = !string.IsNullOrWhiteSpace(certificationCountry) ? certificationCountry : "US";
+            queryParams.Add($"certificationCountry={Uri.EscapeDataString(country)}");
+            queryParams.Add($"certification={Uri.EscapeDataString(certification)}");
         }
 
         if (keywords.HasValue)
@@ -231,10 +249,13 @@ public class SeerrController : ControllerBase
         => this.ProxyGetMerged5PagesAsync($"/discover/movies/studio/{studioId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
 
     /// <summary>
-    /// Gets popular television series from Seerr, optionally filtered by genre, keywords, or network, merging 5 upstream pages.
+    /// Gets popular television series from Seerr, optionally filtered by genre, language, certification, keywords, or network, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
-    /// <param name="genre">The optional genre identifier.</param>
+    /// <param name="genre">The optional comma-separated genre identifier(s).</param>
+    /// <param name="language">The optional pipe-separated language identifier(s).</param>
+    /// <param name="certification">The optional pipe-separated certification rating(s).</param>
+    /// <param name="certificationCountry">The optional certification country code (defaults to US).</param>
     /// <param name="keywords">The optional keywords identifier.</param>
     /// <param name="network">The optional network identifier.</param>
     /// <param name="sortBy">The optional TMDB sort expression (e.g. popularity.desc, first_air_date.desc, vote_average.desc, original_title.asc).</param>
@@ -243,16 +264,31 @@ public class SeerrController : ControllerBase
     [HttpGet("Discover/Tv")]
     public Task<IActionResult> GetTv(
         [FromQuery] int page = 1,
-        [FromQuery] int? genre = null,
+        [FromQuery] string? genre = null,
+        [FromQuery] string? language = null,
+        [FromQuery] string? certification = null,
+        [FromQuery] string? certificationCountry = null,
         [FromQuery] int? keywords = null,
         [FromQuery] int? network = null,
         [FromQuery] string? sortBy = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new List<string>();
-        if (genre.HasValue)
+        if (!string.IsNullOrWhiteSpace(genre))
         {
-            queryParams.Add($"genre={genre.Value.ToString(CultureInfo.InvariantCulture)}");
+            queryParams.Add($"genre={Uri.EscapeDataString(genre)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(language))
+        {
+            queryParams.Add($"language={Uri.EscapeDataString(language)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(certification))
+        {
+            var country = !string.IsNullOrWhiteSpace(certificationCountry) ? certificationCountry : "US";
+            queryParams.Add($"certificationCountry={Uri.EscapeDataString(country)}");
+            queryParams.Add($"certification={Uri.EscapeDataString(certification)}");
         }
 
         if (keywords.HasValue)
