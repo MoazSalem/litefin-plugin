@@ -13,6 +13,7 @@ A lightweight Jellyfin Server companion extension for the Litefin client. It exp
 * **Privacy Focused**: Sensitive parameters (e.g., access tokens, server connection URLs, local session states) are stripped client-side before backup payloads are uploaded.
 * **Chronological Merged Rows**: Exposes a consolidated `/Litefin/MergedRows/ContinueAndNextUp` endpoint that fetches, deduplicates, and chronologically orders (Plex-style) Continue Watching and Next Up rows on the server-side, reducing client loading time.
 * **Collections Lookup Helper**: Exposes a fallback `/Litefin/Items/{itemId}/Collections` API endpoint to let older Jellyfin servers (such as version 10.11) query which collections a movie or series belongs to.
+* **Seerr Integration**: Keeps the server-wide Seerr URL and API key in the administrator-managed plugin configuration and exposes a constrained authenticated API for discovery, search, series details, and requests. Requests are attributed to the Jellyfin user represented by the caller's access token.
 
 ---
 
@@ -55,7 +56,11 @@ This outputs the compiled DLL under `bin/Release/net9.0/Litefin.Plugin.dll`.
 ## Configuration
 
 * **Client**: In the Litefin client, go to **Settings** > **Backup & Restore** to select, restore, overwrite, or delete backup snapshots.
-* **Admin**: Go to **Dashboard** > **Plugins** > **Litefin** to monitor stored configs, export copies, or prune database records.
+* **Admin**: Go to **Dashboard** > **Plugins** > **Litefin** to configure Seerr, monitor stored configs, export copies, or prune database records.
+
+### Seerr
+
+Enter the full Seerr URL and its API key in **Dashboard** > **Plugins** > **Litefin**. Jellyfin users must be imported into Seerr so the plugin can match the authenticated Jellyfin user ID to the corresponding Seerr account. The API key is used only by the server-side plugin and is never included in responses to Litefin clients.
 
 ## Storage Location
 Stored backups are saved inside the Jellyfin configuration folder:
