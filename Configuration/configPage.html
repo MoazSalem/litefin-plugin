@@ -1,331 +1,1828 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Litefin Backup Configuration</title>
-</head>
-<body>
-    <div id="LitefinBackupConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-button,emby-input,emby-table">
-        <div data-role="content">
-            <div class="content-primary">
-                <h2>Litefin</h2>
-                <p style="margin-bottom: 1.5em; color: #aaa; line-height: 1.5; font-size: 1.1em;">
-                    This plugin provides secure backup and restore storage for Litefin clients.
-                    Administrators can configure optional server integrations and manage stored backups below.
+  <head>
+    <meta charset="utf-8" />
+    <title>Litefin Configuration</title>
+  </head>
+  <body>
+    <div
+      id="LitefinBackupConfigPage"
+      data-role="page"
+      class="page type-interior pluginConfigurationPage"
+      data-require="emby-button,emby-input,emby-table"
+    >
+      <div data-role="content">
+        <div class="content-primary">
+          <h2>Litefin</h2>
+          <p
+            style="
+              margin-bottom: 2em;
+              color: #a1a1aa;
+              line-height: 1.5;
+              font-size: 1em;
+            "
+          >
+            Litefin client management and server integration settings.
+          </p>
+
+          <!-- Section 1: Seerr Integration -->
+          <h3
+            style="
+              font-size: 1.25em;
+              font-weight: 600;
+              color: #f4f4f5;
+              margin-bottom: 0.8em;
+            "
+          >
+            Seerr Integration
+          </h3>
+          <div
+            class="paperList"
+            style="
+              padding: 1.8em;
+              background: #141416;
+              border-radius: 12px;
+              border: 1px solid #27272a;
+              margin-bottom: 2.5em;
+            "
+          >
+            <p
+              style="
+                margin-top: 0;
+                margin-bottom: 1.5em;
+                color: #a1a1aa;
+                line-height: 1.5;
+                font-size: 0.95em;
+              "
+            >
+              Connect your Seerr instance to enable discovery, media requests,
+              and watchlists in Litefin. Choose an authentication method below.
+            </p>
+
+            <!-- Seerr Server URL & Inline Save Action (Apple HIG Single-Row Layout) -->
+            <div class="inputContainer" style="margin-bottom: 1.5em">
+              <!-- Label positioned with clean Apple-style typography hierarchy -->
+              <label
+                class="inputLabel inputLabelUnfocused"
+                for="txt-seerr-url"
+                style="font-weight: 500; color: #e4e4e7; margin-bottom: 0.4em; display: block;"
+                >Seerr Server URL</label
+              >
+              <!-- Inline Flex Row: URL input on the left, Save button on the right -->
+              <div
+                style="
+                  display: flex;
+                  gap: 10px;
+                  align-items: center;
+                  width: 100%;
+                "
+              >
+                <!-- URL input taking remaining horizontal row space -->
+                <input
+                  is="emby-input"
+                  type="url"
+                  id="txt-seerr-url"
+                  autocomplete="off"
+                  placeholder="http://192.168.1.50:5055"
+                  style="
+                    border-radius: 8px;
+                    flex: 1;
+                    min-width: 0;
+                    margin: 0;
+                  "
+                />
+                <!-- Test Server reachability button (Apple HIG secondary control) -->
+                <button
+                  is="emby-button"
+                  type="button"
+                  class="raised"
+                  id="btn-test-seerr-server"
+                  style="
+                    background: #27272a;
+                    border: 1px solid #3f3f46;
+                    color: #f4f4f5;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    margin: 0;
+                    padding: 0.7em 1.2em;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                  "
+                >
+                  <span>Test Server</span>
+                </button>
+                <!-- Direct Save URL Action button aligned inline with input (Apple HIG primary control) -->
+                <button
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit"
+                  id="btn-save-seerr-url"
+                  style="
+                    background: #2563eb;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    margin: 0;
+                    padding: 0.7em 1.4em;
+                    white-space: nowrap;
+                    flex-shrink: 0;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                  "
+                >
+                  <span>Save URL</span>
+                </button>
+              </div>
+              <!-- Dynamic unsaved changes warning notice (Apple HIG subtle caution pill) -->
+              <div
+                id="seerr-url-unsaved-warning"
+                style="
+                  display: none;
+                  margin-top: 0.5em;
+                  padding: 0.45em 0.8em;
+                  background: rgba(245, 158, 11, 0.08);
+                  border: 1px solid rgba(245, 158, 11, 0.25);
+                  border-radius: 6px;
+                  color: #fbbf24;
+                  font-size: 0.85em;
+                  font-weight: 500;
+                  line-height: 1.4;
+                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                "
+              >
+                <span>The current URL differs from the saved configuration and is not saved yet. Click &ldquo;Save URL&rdquo; to apply.</span>
+              </div>
+              <!-- Helper description beneath the inline group -->
+              <div class="fieldDescription" style="color: #71717a; margin-top: 0.4em;">
+                The base URL of your Seerr server without <code>/api/v1</code>.
+              </div>
+            </div>
+
+            <!-- Configured API Key Card (Apple HIG Sleek Status Component) -->
+            <div
+              id="seerr-key-configured-card"
+              style="
+                display: none;
+                align-items: center;
+                justify-content: space-between;
+                background: #18181b;
+                border: 1px solid #27272a;
+                border-radius: 10px;
+                padding: 1.25em 1.5em;
+                margin-bottom: 1.5em;
+                gap: 16px;
+                flex-wrap: wrap;
+              "
+            >
+              <div style="display: flex; align-items: center; gap: 14px;">
+                <!-- Apple-style status indicator pill -->
+                <div
+                  style="
+                    width: 36px;
+                    height: 36px;
+                    border-radius: 50%;
+                    background: rgba(34, 197, 94, 0.15);
+                    border: 1px solid rgba(34, 197, 94, 0.35);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                  "
+                >
+                  <svg
+                    style="width: 18px; height: 18px; fill: #4ade80;"
+                    viewBox="0 0 24 24"
+                  >
+                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                  </svg>
+                </div>
+                <div>
+                  <div
+                    style="
+                      font-weight: 600;
+                      color: #f4f4f5;
+                      font-size: 1em;
+                      letter-spacing: -0.01em;
+                    "
+                  >
+                    API Key is Configured
+                  </div>
+                  <div
+                    style="
+                      color: #a1a1aa;
+                      font-size: 0.88em;
+                      margin-top: 3px;
+                      line-height: 1.4;
+                    "
+                  >
+                    Authentication with your Seerr instance is active.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Reset Key Button to re-expose the 3 connection methods -->
+              <button
+                is="emby-button"
+                type="button"
+                class="raised"
+                id="btn-reset-seerr-key"
+                style="
+                  background: rgba(239, 68, 68, 0.12);
+                  border: 1px solid rgba(239, 68, 68, 0.3);
+                  color: #fca5a5;
+                  border-radius: 8px;
+                  font-weight: 500;
+                  font-size: 0.9em;
+                  margin: 0;
+                  padding: 0.6em 1.2em;
+                  white-space: nowrap;
+                  cursor: pointer;
+                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                "
+              >
+                <span>Reset Key</span>
+              </button>
+            </div>
+
+            <!-- Container for the 3 Connection Methods (hidden when API key is configured) -->
+            <div id="seerr-connection-methods">
+              <!-- Clean HIG Segmented Control -->
+              <div
+                class="seerr-segmented-control"
+              style="
+                display: flex;
+                background: #202024;
+                border-radius: 8px;
+                padding: 4px;
+                gap: 4px;
+                margin-bottom: 1.5em;
+                user-select: none;
+              "
+            >
+              <button
+                type="button"
+                class="seerr-tab-btn active"
+                data-tab="quickconnect"
+                style="
+                  flex: 1;
+                  border: none;
+                  background: #2e2e34;
+                  color: #fff;
+                  padding: 9px 16px;
+                  border-radius: 6px;
+                  font-weight: 500;
+                  font-size: 0.9em;
+                  cursor: pointer;
+                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                "
+              >
+                Quick Connect
+              </button>
+              <button
+                type="button"
+                class="seerr-tab-btn"
+                data-tab="login"
+                style="
+                  flex: 1;
+                  border: none;
+                  background: transparent;
+                  color: #a1a1aa;
+                  padding: 9px 16px;
+                  border-radius: 6px;
+                  font-weight: 500;
+                  font-size: 0.9em;
+                  cursor: pointer;
+                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                "
+              >
+                Admin Login
+              </button>
+              <button
+                type="button"
+                class="seerr-tab-btn"
+                data-tab="manual"
+                style="
+                  flex: 1;
+                  border: none;
+                  background: transparent;
+                  color: #a1a1aa;
+                  padding: 9px 16px;
+                  border-radius: 6px;
+                  font-weight: 500;
+                  font-size: 0.9em;
+                  cursor: pointer;
+                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                "
+              >
+                Manual API Key
+              </button>
+            </div>
+
+            <!-- TAB 1: Quick Connect Pairing -->
+            <div
+              id="tab-pane-quickconnect"
+              class="seerr-tab-pane"
+              style="display: block"
+            >
+              <div
+                style="
+                  background: rgba(255, 255, 255, 0.02);
+                  border: 1px solid #27272a;
+                  border-radius: 10px;
+                  padding: 1.5em;
+                  margin-bottom: 1.2em;
+                "
+              >
+                <div
+                  style="
+                    font-weight: 600;
+                    color: #f4f4f5;
+                    margin-bottom: 0.4em;
+                    font-size: 1em;
+                  "
+                >
+                  Quick Connect Pairing
+                </div>
+                <p
+                  style="
+                    margin: 0 0 1em 0;
+                    color: #a1a1aa;
+                    font-size: 0.9em;
+                    line-height: 1.5;
+                  "
+                >
+                  Generates a Quick Connect verification PIN to authorize
+                  pairing without entering passwords.
                 </p>
 
-                <h3 style="margin-top: 1.5em; font-size: 1.3em; font-weight: 500;">Seerr Integration</h3>
-                <div class="paperList" style="padding: 1.5em; background: #1a1a1a; border-radius: 6px; border: 1px solid #2e2e2e; margin: 1em 0 2em;">
-                    <p style="margin-top: 0; color: #aaa; line-height: 1.5;">
-                        Configure Seerr once on the server. Litefin clients use their existing Jellyfin session and never receive the API key.
-                        Jellyfin users must also be imported into Seerr for requests to be attributed correctly.
-                    </p>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="txt-seerr-url">Seerr URL</label>
-                        <input is="emby-input" type="url" id="txt-seerr-url" autocomplete="off" placeholder="http://192.168.1.20:5055" />
-                        <div class="fieldDescription">The full URL of the Seerr instance, without <code>/api/v1</code>.</div>
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="txt-seerr-api-key">Seerr API Key</label>
-                        <input is="emby-input" type="password" id="txt-seerr-api-key" autocomplete="new-password" />
-                        <div class="fieldDescription">Stored in the Jellyfin plugin configuration and never returned by the Litefin Seerr API.</div>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px; margin-top: 1em;">
-                        <button is="emby-button" type="button" class="raised button-submit" id="btn-save-seerr">
-                            <span>Save Seerr Settings</span>
-                        </button>
-                        <button is="emby-button" type="button" class="raised" id="btn-test-seerr">
-                            <span>Test Connection</span>
-                        </button>
-                        <span id="seerr-status" style="color: #aaa;"></span>
-                    </div>
+                <!-- Explicit Admin Clarification Box -->
+                <div
+                  style="
+                    background: rgba(56, 189, 248, 0.08);
+                    border-left: 3px solid #38bdf8;
+                    padding: 0.85em 1.2em;
+                    border-radius: 4px;
+                    margin-bottom: 1.2em;
+                  "
+                >
+                  <div
+                    style="color: #e0f2fe; font-size: 0.88em; line-height: 1.5"
+                  >
+                    <strong>Important Note:</strong> This pairing must be
+                    authorized by an <strong>Administrator account</strong> in
+                    your Jellyfin web client (Settings &rarr; Quick Connect) to
+                    allow Litefin to retrieve the server API key from Seerr.
+                  </div>
                 </div>
 
-                <!-- Export/Import Tools -->
-                <div style="display: flex; gap: 12px; margin-bottom: 2em;">
-                    <button is="emby-button" type="button" class="raised button-submit" id="btn-export-backups" style="margin: 0; padding: 0.6em 1.2em; border-radius: 4px; cursor: pointer;">
-                        <span>Export Backups</span>
-                    </button>
-                    <button is="emby-button" type="button" class="raised button-accent" id="btn-import-backups" style="margin: 0; padding: 0.6em 1.2em; border-radius: 4px; cursor: pointer; background: #555;">
-                        <span>Import Backups</span>
-                    </button>
-                    <input type="file" id="import-backups-file" accept=".json" style="display: none;" />
-                    <button is="emby-button" type="button" class="raised" id="btn-refresh-backups" style="margin: 0 0 0 auto; padding: 0.6em 1.2em; border-radius: 4px; cursor: pointer; background: #3a3a3a;">
-                        <span>Refresh</span>
-                    </button>
+                <!-- Code display card -->
+                <div
+                  id="qc-code-card"
+                  style="
+                    display: none;
+                    text-align: center;
+                    padding: 1.5em;
+                    background: #09090b;
+                    border: 1px solid #3f3f46;
+                    border-radius: 10px;
+                    margin-bottom: 1.2em;
+                  "
+                >
+                  <div
+                    style="
+                      font-size: 0.8em;
+                      color: #a1a1aa;
+                      text-transform: uppercase;
+                      letter-spacing: 0.1em;
+                      margin-bottom: 0.5em;
+                    "
+                  >
+                    Authorize this code in Jellyfin Web (Admin)
+                  </div>
+                  <div
+                    id="qc-code-display"
+                    style="
+                      font-size: 2.4em;
+                      font-weight: 700;
+                      letter-spacing: 0.3em;
+                      color: #38bdf8;
+                      font-family: monospace;
+                      user-select: all;
+                    "
+                  >
+                    ------
+                  </div>
+                  <div
+                    style="
+                      margin-top: 0.8em;
+                      font-size: 0.85em;
+                      color: #e4e4e7;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      gap: 8px;
+                    "
+                  >
+                    <span
+                      class="qc-spinner"
+                      style="
+                        display: inline-block;
+                        width: 12px;
+                        height: 12px;
+                        border: 2px solid rgba(56, 189, 248, 0.3);
+                        border-top-color: #38bdf8;
+                        border-radius: 50%;
+                        animation: qc-spin 0.8s linear infinite;
+                      "
+                    ></span>
+                    <span>Waiting for administrator authorization...</span>
+                  </div>
                 </div>
 
-                <h3 style="margin-top: 1.5em; font-size: 1.3em; font-weight: 500;">Stored Backups</h3>
-                <div class="paperList" style="padding: 1.5em; background: #1a1a1a; border-radius: 6px; border: 1px solid #2e2e2e; margin-top: 1em;">
-                    <table class="table" style="width: 100%; text-align: left; border-collapse: collapse;">
-                        <thead>
-                            <tr style="border-bottom: 1px solid #444; color: #fff;">
-                                <th style="padding: 0.8em 0; font-weight: bold;">Backup Name</th>
-                                <th style="padding: 0.8em 0; font-weight: bold;">Device Name</th>
-                                <th style="padding: 0.8em 0; font-weight: bold;">Username</th>
-                                <th style="padding: 0.8em 0; font-weight: bold;">Device ID</th>
-                                <th style="padding: 0.8em 0; font-weight: bold;">Platform</th>
-                                <th style="padding: 0.8em 0; font-weight: bold;">Version</th>
-                                <th style="padding: 0.8em 0; font-weight: bold;">Last Backed Up</th>
-                                <th style="padding: 0.8em 0; font-weight: bold; text-align: right;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="backups-table-body">
-                            <!-- Populated dynamically -->
-                        </tbody>
-                    </table>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    flex-wrap: wrap;
+                  "
+                >
+                  <button
+                    is="emby-button"
+                    type="button"
+                    class="raised button-submit"
+                    id="btn-start-qc"
+                    style="
+                      background: #2563eb;
+                      border-radius: 8px;
+                      font-weight: 500;
+                      margin: 0;
+                      padding: 0.7em 1.4em;
+                    "
+                  >
+                    <span>Start Quick Connect Pairing</span>
+                  </button>
+                  <button
+                    is="emby-button"
+                    type="button"
+                    class="raised"
+                    id="btn-auto-authorize-qc"
+                    style="
+                      display: none;
+                      border-radius: 8px;
+                      background: #16a34a;
+                      font-weight: 500;
+                      margin: 0;
+                      padding: 0.7em 1.4em;
+                    "
+                  >
+                    <span>Authorize Instantly</span>
+                  </button>
+                  <button
+                    is="emby-button"
+                    type="button"
+                    class="raised"
+                    id="btn-open-qc-page"
+                    style="
+                      display: none;
+                      border-radius: 8px;
+                      background: #2563eb;
+                      font-weight: 500;
+                      margin: 0;
+                      padding: 0.7em 1.4em;
+                    "
+                  >
+                    <span>Authorize in New Window</span>
+                  </button>
+                  <button
+                    is="emby-button"
+                    type="button"
+                    class="raised"
+                    id="btn-cancel-qc"
+                    style="
+                      display: none;
+                      border-radius: 8px;
+                      background: #27272a;
+                      border: 1px solid #3f3f46;
+                      margin: 0;
+                      padding: 0.7em 1.4em;
+                    "
+                  >
+                    <span>Cancel</span>
+                  </button>
                 </div>
+              </div>
             </div>
+
+            <!-- TAB 2: Admin Credentials Login -->
+            <div
+              id="tab-pane-login"
+              class="seerr-tab-pane"
+              style="display: none"
+            >
+              <div
+                style="
+                  background: rgba(255, 255, 255, 0.02);
+                  border: 1px solid #27272a;
+                  border-radius: 10px;
+                  padding: 1.5em;
+                  margin-bottom: 1.2em;
+                "
+              >
+                <div
+                  style="
+                    font-weight: 600;
+                    color: #f4f4f5;
+                    margin-bottom: 0.4em;
+                    font-size: 1em;
+                  "
+                >
+                  Automatic API Key Retrieval
+                </div>
+                <p
+                  style="
+                    margin: 0 0 1.2em 0;
+                    color: #a1a1aa;
+                    font-size: 0.9em;
+                    line-height: 1.5;
+                  "
+                >
+                  Enter your Seerr administrator credentials. Litefin
+                  authenticates once to automatically retrieve and store your
+                  API key. Credentials are never saved.
+                </p>
+
+                <div class="inputContainer" style="margin-bottom: 1em">
+                  <label
+                    class="inputLabel inputLabelUnfocused"
+                    for="txt-seerr-user"
+                    style="font-weight: 500; color: #e4e4e7"
+                    >Seerr Admin Username or Email</label
+                  >
+                  <input
+                    is="emby-input"
+                    type="text"
+                    id="txt-seerr-user"
+                    autocomplete="username"
+                    style="border-radius: 8px"
+                  />
+                </div>
+                <div class="inputContainer" style="margin-bottom: 1.2em">
+                  <label
+                    class="inputLabel inputLabelUnfocused"
+                    for="txt-seerr-password"
+                    style="font-weight: 500; color: #e4e4e7"
+                    >Seerr Admin Password</label
+                  >
+                  <input
+                    is="emby-input"
+                    type="password"
+                    id="txt-seerr-password"
+                    autocomplete="current-password"
+                    style="border-radius: 8px"
+                  />
+                  <div class="fieldDescription" style="color: #71717a">
+                    Leave empty if your account has no password set.
+                  </div>
+                </div>
+
+                <button
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit"
+                  id="btn-login-seerr"
+                  style="
+                    background: #2563eb;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    margin: 0;
+                    padding: 0.7em 1.4em;
+                  "
+                >
+                  <span>Authorize &amp; Fetch API Key</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- TAB 3: Manual API Key -->
+            <div
+              id="tab-pane-manual"
+              class="seerr-tab-pane"
+              style="display: none"
+            >
+              <div
+                style="
+                  background: rgba(255, 255, 255, 0.02);
+                  border: 1px solid #27272a;
+                  border-radius: 10px;
+                  padding: 1.5em;
+                  margin-bottom: 1.2em;
+                "
+              >
+                <div
+                  style="
+                    font-weight: 600;
+                    color: #f4f4f5;
+                    margin-bottom: 0.4em;
+                    font-size: 1em;
+                  "
+                >
+                  Manual Key Entry
+                </div>
+                <p
+                  style="
+                    margin: 0 0 1.2em 0;
+                    color: #a1a1aa;
+                    font-size: 0.9em;
+                    line-height: 1.5;
+                  "
+                >
+                  Paste the API key directly from your Seerr dashboard (Settings
+                  &rarr; General &rarr; API Key).
+                </p>
+
+                <div class="inputContainer" style="margin-bottom: 1.2em">
+                  <label
+                    class="inputLabel inputLabelUnfocused"
+                    for="txt-seerr-api-key"
+                    style="font-weight: 500; color: #e4e4e7"
+                    >Seerr API Key</label
+                  >
+                  <input
+                    is="emby-input"
+                    type="password"
+                    id="txt-seerr-api-key"
+                    autocomplete="new-password"
+                    style="border-radius: 8px"
+                  />
+                  <div class="fieldDescription" style="color: #71717a">
+                    Stored securely in the plugin configuration.
+                  </div>
+                </div>
+
+                <button
+                  is="emby-button"
+                  type="button"
+                  class="raised button-submit"
+                  id="btn-save-seerr"
+                  style="
+                    background: #2563eb;
+                    border-radius: 8px;
+                    font-weight: 500;
+                    margin: 0;
+                    padding: 0.7em 1.4em;
+                  "
+                >
+                  <span>Save API Key Manually</span>
+                </button>
+              </div>
+            </div>
+            </div> <!-- Close #seerr-connection-methods -->
+
+            <!-- Status & Test Bar -->
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-top: 1px solid #27272a;
+                padding-top: 1.2em;
+                margin-top: 1em;
+              "
+            >
+              <button
+                is="emby-button"
+                type="button"
+                class="raised"
+                id="btn-test-seerr"
+                style="
+                  border-radius: 8px;
+                  background: #27272a;
+                  border: 1px solid #3f3f46;
+                  margin: 0;
+                  padding: 0.7em 1.4em;
+                "
+              >
+                <span>Test Connection</span>
+              </button>
+              <div
+                id="seerr-status-container"
+                style="display: flex; align-items: center; gap: 8px"
+              >
+                <span
+                  id="seerr-status-icon"
+                  style="font-weight: bold; font-size: 1em"
+                ></span>
+                <span
+                  id="seerr-status"
+                  style="color: #a1a1aa; font-size: 0.95em; font-weight: 500"
+                ></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: Stored Client Backups -->
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-bottom: 0.8em;
+            "
+          >
+            <h3
+              style="
+                font-size: 1.25em;
+                font-weight: 600;
+                color: #f4f4f5;
+                margin: 0;
+              "
+            >
+              Stored Backups
+            </h3>
+            <div style="display: flex; gap: 8px">
+              <button
+                is="emby-button"
+                type="button"
+                class="raised button-submit"
+                id="btn-export-backups"
+                style="
+                  background: #2563eb;
+                  margin: 0;
+                  padding: 0.55em 1.1em;
+                  border-radius: 6px;
+                  font-size: 0.9em;
+                  cursor: pointer;
+                "
+              >
+                <span>Export All</span>
+              </button>
+              <button
+                is="emby-button"
+                type="button"
+                class="raised"
+                id="btn-import-backups"
+                style="
+                  margin: 0;
+                  padding: 0.55em 1.1em;
+                  border-radius: 6px;
+                  font-size: 0.9em;
+                  cursor: pointer;
+                  background: #27272a;
+                  border: 1px solid #3f3f46;
+                "
+              >
+                <span>Import</span>
+              </button>
+              <input
+                type="file"
+                id="import-backups-file"
+                accept=".json"
+                style="display: none"
+              />
+              <button
+                is="emby-button"
+                type="button"
+                class="raised"
+                id="btn-refresh-backups"
+                style="
+                  margin: 0;
+                  padding: 0.55em 1.1em;
+                  border-radius: 6px;
+                  font-size: 0.9em;
+                  cursor: pointer;
+                  background: #27272a;
+                  border: 1px solid #3f3f46;
+                "
+              >
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            class="paperList"
+            style="
+              padding: 1.5em;
+              background: #141416;
+              border-radius: 12px;
+              border: 1px solid #27272a;
+              margin-bottom: 2em;
+            "
+          >
+            <table
+              class="table"
+              style="width: 100%; text-align: left; border-collapse: collapse"
+            >
+              <thead>
+                <tr
+                  style="
+                    border-bottom: 1px solid #27272a;
+                    color: #a1a1aa;
+                    font-size: 0.85em;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                  "
+                >
+                  <th style="padding: 0.8em 0; font-weight: 600">
+                    Backup Name
+                  </th>
+                  <th style="padding: 0.8em 0; font-weight: 600">
+                    Device Name
+                  </th>
+                  <th style="padding: 0.8em 0; font-weight: 600">Username</th>
+                  <th style="padding: 0.8em 0; font-weight: 600">Device ID</th>
+                  <th style="padding: 0.8em 0; font-weight: 600">Platform</th>
+                  <th style="padding: 0.8em 0; font-weight: 600">Version</th>
+                  <th style="padding: 0.8em 0; font-weight: 600">
+                    Last Backed Up
+                  </th>
+                  <th
+                    style="
+                      padding: 0.8em 0;
+                      font-weight: 600;
+                      text-align: right;
+                    "
+                  >
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="backups-table-body">
+                <!-- Populated dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <style>
+            @keyframes qc-spin {
+              0% {
+                transform: rotate(0deg);
+              }
+              100% {
+                transform: rotate(360deg);
+              }
+            }
+            .seerr-tab-btn:hover {
+              color: #fff !important;
+            }
+          </style>
         </div>
-        <script type="text/javascript">
-            var LitefinConfig = {
-                pluginUniqueId: 'f5c68360-ca47-4648-b47c-3da5f112aa8f'
-            };
- 
-            function escapeHtml(unsafe) {
-                return (unsafe || "")
-                    .replace(/&/g, "&amp;")
-                    .replace(/</g, "&lt;")
-                    .replace(/>/g, "&gt;")
-                    .replace(/"/g, "&quot;")
-                    .replace(/'/g, "&#039;");
+      </div>
+
+      <script type="text/javascript">
+        var LitefinConfig = {
+          pluginUniqueId: "f5c68360-ca47-4648-b47c-3da5f112aa8f",
+        };
+
+        function escapeHtml(unsafe) {
+          return (unsafe || "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+        }
+
+        var qcSecret = null;
+        var qcPollTimer = null;
+        var qcPollCount = 0;
+        var QC_MAX_POLLS = 60; // 60 * 3s = 3 minutes
+
+        function setSeerrStatus(msg, isSuccess, isPending) {
+          var statusText = document.querySelector("#seerr-status");
+          var statusIcon = document.querySelector("#seerr-status-icon");
+          if (!statusText) return;
+
+          statusText.textContent = msg || "";
+          if (isSuccess === true) {
+            statusText.style.color = "#4ade80";
+            if (statusIcon) {
+              statusIcon.textContent = "[OK]";
+              statusIcon.style.color = "#4ade80";
             }
- 
-            function loadBackupsList() {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                    var html = '';
-                    var backups = (config.Backups || []).map(function (b, index) {
-                        return { data: b, originalIndex: index };
-                    });
-
-                    // Sort newest first
-                    backups.sort(function (a, b) {
-                        return new Date(b.data.DateCreated) - new Date(a.data.DateCreated);
-                    });
-                    
-                    if (backups.length === 0) {
-                        html = '<tr><td colspan="8" style="padding: 1.5em 0; text-align: center; color: #777;">No stored user backups found.</td></tr>';
-                    } else {
-                        backups.forEach(function (item) {
-                            var backup = item.data;
-                            var index = item.originalIndex;
-                            var dateStr = new Date(backup.DateCreated).toLocaleString();
-                            var backupName = backup.Name || '(Auto)';
-                            var platformMap = {
-                                'web': 'Web',
-                                'tizen': 'Tizen',
-                                'webos': 'WebOS'
-                            };
-                            var platformDisplay = platformMap[backup.Platform] || backup.Platform || 'Unknown';
-                            var appVersion = backup.AppVersion || '1.0.0';
-
-                            html += '<tr style="border-bottom: 1px solid #2e2e2e;">';
-                            html += '  <td style="padding: 0.8em 0; font-weight: 500;">' + escapeHtml(backupName) + '</td>';
-                            html += '  <td style="padding: 0.8em 0; color: #aaa;">' + escapeHtml(backup.DeviceName || 'Unknown') + '</td>';
-                            html += '  <td style="padding: 0.8em 0; color: #ccc;">' + escapeHtml(backup.Username) + '</td>';
-                            html += '  <td style="padding: 0.8em 0; color: #777; font-family: monospace; font-size: 0.9em;">' + escapeHtml(backup.DeviceId || 'Unknown') + '</td>';
-                            html += '  <td style="padding: 0.8em 0; color: #ccc;">' + escapeHtml(platformDisplay) + '</td>';
-                            html += '  <td style="padding: 0.8em 0; color: #ccc;">' + escapeHtml(appVersion) + '</td>';
-                            html += '  <td style="padding: 0.8em 0; color: #aaa;">' + dateStr + '</td>';
-                            html += '  <td style="padding: 0.8em 0; text-align: right; white-space: nowrap;">';
-                            html += '    <button is="emby-button" type="button" class="raised button-subtle btnExportBackup" data-index="' + index + '" style="margin: 0 4px 0 0; padding: 0.4em 0.8em; font-size: 0.9em; background: #555; color: white; border-radius: 4px; border: none; cursor: pointer;">Export</button>';
-                            html += '    <button is="emby-button" type="button" class="raised button-accent btnDeleteBackup" data-index="' + index + '" style="margin: 0; padding: 0.4em 0.8em; font-size: 0.9em; background: #cc3333; color: white; border-radius: 4px; border: none; cursor: pointer;">Delete</button>';
-                            html += '  </td>';
-                            html += '</tr>';
-                        });
-                    }
-                    
-                    var body = document.querySelector('#backups-table-body');
-                    body.innerHTML = html;
-                    
-                    // Bind export handlers
-                    var exportBtns = body.querySelectorAll('.btnExportBackup');
-                    exportBtns.forEach(function (btn) {
-                        btn.addEventListener('click', function () {
-                            var index = parseInt(this.getAttribute('data-index'));
-                            exportBackupRecord(index);
-                        });
-                    });
-
-                    // Bind delete handlers
-                    var deleteBtns = body.querySelectorAll('.btnDeleteBackup');
-                    deleteBtns.forEach(function (btn) {
-                        btn.addEventListener('click', function () {
-                            var index = parseInt(this.getAttribute('data-index'));
-                            deleteBackupRecord(index);
-                        });
-                    });
-                    
-                    Dashboard.hideLoadingMsg();
-                });
+          } else if (isSuccess === false) {
+            statusText.style.color = "#f87171";
+            if (statusIcon) {
+              statusIcon.textContent = "[Error]";
+              statusIcon.style.color = "#f87171";
             }
-
-            function loadSeerrConfiguration() {
-                ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                    document.querySelector('#txt-seerr-url').value = config.SeerrUrl || '';
-                    document.querySelector('#txt-seerr-api-key').value = config.SeerrApiKey || '';
-                });
+          } else if (isPending === true) {
+            statusText.style.color = "#38bdf8";
+            if (statusIcon) {
+              statusIcon.textContent = "...";
+              statusIcon.style.color = "#38bdf8";
             }
-
-            function persistSeerrConfiguration() {
-                return ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                    config.SeerrUrl = document.querySelector('#txt-seerr-url').value.trim().replace(/\/+$/, '');
-                    config.SeerrApiKey = document.querySelector('#txt-seerr-api-key').value.trim();
-                    return ApiClient.updatePluginConfiguration(LitefinConfig.pluginUniqueId, config);
-                });
+          } else {
+            statusText.style.color = "#a1a1aa";
+            if (statusIcon) {
+              statusIcon.textContent = "";
             }
+          }
+        }
 
-            function saveSeerrConfiguration() {
-                Dashboard.showLoadingMsg();
-                persistSeerrConfiguration().then(function () {
-                    document.querySelector('#seerr-status').textContent = 'Settings saved.';
-                    Dashboard.hideLoadingMsg();
-                }).catch(function () {
-                    document.querySelector('#seerr-status').textContent = 'Unable to save Seerr settings.';
-                    Dashboard.hideLoadingMsg();
-                });
-            }
+        function setupTabSwitching() {
+          var tabButtons = document.querySelectorAll(".seerr-tab-btn");
+          var tabPanes = document.querySelectorAll(".seerr-tab-pane");
 
-            function testSeerrConnection() {
-                var status = document.querySelector('#seerr-status');
-                status.textContent = 'Testing...';
-                Dashboard.showLoadingMsg();
-                ApiClient.ajax({
-                    type: 'POST',
-                    url: ApiClient.getUrl('Litefin/Seerr/Status/Test'),
-                    contentType: 'application/json',
-                    dataType: 'json',
-                    data: JSON.stringify({
-                        SeerrUrl: document.querySelector('#txt-seerr-url').value.trim().replace(/\/+$/, ''),
-                        SeerrApiKey: document.querySelector('#txt-seerr-api-key').value.trim()
-                    })
-                }).then(function (result) {
-                    status.textContent = result.available ? 'Connected successfully.' : 'Seerr is not reachable or rejected the API key.';
-                    Dashboard.hideLoadingMsg();
-                }).catch(function () {
-                    status.textContent = 'Connection test failed.';
-                    Dashboard.hideLoadingMsg();
-                });
-            }
+          tabButtons.forEach(function (btn) {
+            btn.addEventListener("click", function () {
+              var targetTab = this.getAttribute("data-tab");
 
-            function deleteBackupRecord(index) {
-                if (confirm('Are you sure you want to delete this user\'s backup record?')) {
-                    Dashboard.showLoadingMsg();
-                    ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                        config.Backups.splice(index, 1);
-                        ApiClient.updatePluginConfiguration(LitefinConfig.pluginUniqueId, config).then(function () {
-                            loadBackupsList();
-                        });
-                    });
+              tabButtons.forEach(function (b) {
+                var isActive = b === btn;
+                b.classList.toggle("active", isActive);
+                b.style.background = isActive ? "#2e2e34" : "transparent";
+                b.style.color = isActive ? "#fff" : "#a1a1aa";
+              });
+
+              tabPanes.forEach(function (pane) {
+                pane.style.display =
+                  pane.id === "tab-pane-" + targetTab ? "block" : "none";
+              });
+            });
+          });
+        }
+
+        var qcCode = null;
+
+        function cancelQuickConnect() {
+          if (qcPollTimer !== null) {
+            clearInterval(qcPollTimer);
+            qcPollTimer = null;
+          }
+          qcSecret = null;
+          qcCode = null;
+          qcPollCount = 0;
+
+          var card = document.querySelector("#qc-code-card");
+          var startBtn = document.querySelector("#btn-start-qc");
+          var openBtn = document.querySelector("#btn-open-qc-page");
+          var autoAuthBtn = document.querySelector("#btn-auto-authorize-qc");
+          var cancelBtn = document.querySelector("#btn-cancel-qc");
+
+          if (card) card.style.display = "none";
+          if (startBtn) startBtn.style.display = "inline-flex";
+          if (openBtn) openBtn.style.display = "none";
+          if (autoAuthBtn) autoAuthBtn.style.display = "none";
+          if (cancelBtn) cancelBtn.style.display = "none";
+        }
+
+        function openQuickConnectWindow() {
+          if (!qcCode) return;
+
+          // Copy code to clipboard for user convenience
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(qcCode).catch(function () {});
+          }
+
+          // Jellyfin quick connect URL relative to the current web root
+          // e.g. http://192.168.1.56:8096/web/#/quickconnect
+          var qcUrl = ApiClient.getUrl("web/#/quickconnect");
+          window.open(qcUrl, "_blank");
+          setSeerrStatus(
+            "Code " +
+              qcCode +
+              " copied to clipboard! Authorize in the opened window.",
+            null,
+            true,
+          );
+        }
+
+        function autoAuthorizeQuickConnect() {
+          if (!qcCode) return;
+
+          setSeerrStatus(
+            "Authorizing code " + qcCode + " with your current session...",
+            null,
+            true,
+          );
+          Dashboard.showLoadingMsg();
+
+          // Authorize Quick Connect code directly on Jellyfin server using current session
+          ApiClient.ajax({
+            type: "POST",
+            url: ApiClient.getUrl(
+              "QuickConnect/Authorize?code=" + encodeURIComponent(qcCode),
+            ),
+            dataType: "json",
+          })
+            .then(function () {
+              Dashboard.hideLoadingMsg();
+              setSeerrStatus(
+                "Code authorized! Waiting for Seerr to verify...",
+                null,
+                true,
+              );
+            })
+            .catch(function (err) {
+              Dashboard.hideLoadingMsg();
+              // If direct authorization endpoint requires opening the web page
+              openQuickConnectWindow();
+            });
+        }
+
+        function startQuickConnect() {
+          var seerrUrl = document
+            .querySelector("#txt-seerr-url")
+            .value.trim()
+            .replace(/\/+$/, "");
+          if (!seerrUrl) {
+            setSeerrStatus("Please enter the Seerr Server URL first.", false);
+            return;
+          }
+
+          cancelQuickConnect();
+          setSeerrStatus("Initiating Quick Connect session...", null, true);
+          Dashboard.showLoadingMsg();
+
+          ApiClient.ajax({
+            type: "POST",
+            url: ApiClient.getUrl("Litefin/Seerr/Auth/QuickConnect/Initiate"),
+            contentType: "application/json",
+            dataType: "json",
+            data: JSON.stringify({ SeerrUrl: seerrUrl }),
+          })
+            .then(function (result) {
+              Dashboard.hideLoadingMsg();
+              if (!result || !result.Code || !result.Secret) {
+                setSeerrStatus(
+                  "Invalid Quick Connect response from server.",
+                  false,
+                );
+                return;
+              }
+
+              qcSecret = result.Secret;
+              qcCode = result.Code;
+              qcPollCount = 0;
+
+              // Copy code automatically to clipboard
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard
+                  .writeText(result.Code)
+                  .catch(function () {});
+              }
+
+              var codeDisplay = document.querySelector("#qc-code-display");
+              var card = document.querySelector("#qc-code-card");
+              var startBtn = document.querySelector("#btn-start-qc");
+              var openBtn = document.querySelector("#btn-open-qc-page");
+              var autoAuthBtn = document.querySelector(
+                "#btn-auto-authorize-qc",
+              );
+              var cancelBtn = document.querySelector("#btn-cancel-qc");
+
+              if (codeDisplay) codeDisplay.textContent = result.Code;
+              if (card) card.style.display = "block";
+              if (startBtn) startBtn.style.display = "none";
+              if (openBtn) openBtn.style.display = "inline-flex";
+              if (autoAuthBtn) autoAuthBtn.style.display = "inline-flex";
+              if (cancelBtn) cancelBtn.style.display = "inline-flex";
+
+              setSeerrStatus(
+                "Code " +
+                  result.Code +
+                  " generated (copied to clipboard). Click Authorize Instantly or Authorize in New Window.",
+                null,
+                true,
+              );
+
+              // Poll every 3 seconds
+              qcPollTimer = setInterval(function () {
+                qcPollCount++;
+                if (qcPollCount > QC_MAX_POLLS) {
+                  cancelQuickConnect();
+                  setSeerrStatus(
+                    "Quick Connect timed out. Please try again.",
+                    false,
+                  );
+                  return;
                 }
-            }
 
-            function exportBackupRecord(index) {
-                Dashboard.showLoadingMsg();
-                ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                    var backup = config.Backups[index];
-                    if (!backup) {
-                        Dashboard.hideLoadingMsg();
-                        return;
+                ApiClient.ajax({
+                  type: "POST",
+                  url: ApiClient.getUrl(
+                    "Litefin/Seerr/Auth/QuickConnect/Check",
+                  ),
+                  contentType: "application/json",
+                  dataType: "json",
+                  data: JSON.stringify({
+                    SeerrUrl: seerrUrl,
+                    Secret: qcSecret,
+                  }),
+                })
+                  .then(function (statusResult) {
+                    if (
+                      statusResult &&
+                      statusResult.Authenticated &&
+                      statusResult.Success
+                    ) {
+                      cancelQuickConnect();
+                      loadSeerrConfiguration();
+                      setSeerrStatus(
+                        "Quick Connect authorized. Seerr API key acquired and saved.",
+                        true,
+                      );
+                    } else if (
+                      statusResult &&
+                      statusResult.Authenticated &&
+                      !statusResult.Success
+                    ) {
+                      cancelQuickConnect();
+                      setSeerrStatus(
+                        statusResult.Message ||
+                          "Quick Connect authorization failed.",
+                        false,
+                      );
                     }
-                    var blob = new Blob([JSON.stringify([backup], null, 2)], {type: 'application/json'});
-                    var url = URL.createObjectURL(blob);
-                    var a = document.createElement('a');
-                    a.href = url;
-                    a.download = (backup.Name || backup.DeviceName || 'backup').replace(/[^a-zA-Z0-9 _-]/g, '') + '_' + Date.now() + '.json';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                    Dashboard.hideLoadingMsg();
+                  })
+                  .catch(function () {
+                    // Transient poll error, continue polling
+                  });
+              }, 3000);
+            })
+            .catch(function (err) {
+              Dashboard.hideLoadingMsg();
+              var msg =
+                err && err.responseJSON && err.responseJSON.message
+                  ? err.responseJSON.message
+                  : "Failed to initiate Quick Connect.";
+              setSeerrStatus(msg, false);
+            });
+        }
+
+        function loginWithSeerrCredentials() {
+          var seerrUrl = document
+            .querySelector("#txt-seerr-url")
+            .value.trim()
+            .replace(/\/+$/, "");
+          var username = document.querySelector("#txt-seerr-user").value.trim();
+          var password = document.querySelector("#txt-seerr-password").value;
+
+          if (!seerrUrl) {
+            setSeerrStatus("Please enter the Seerr Server URL first.", false);
+            return;
+          }
+          if (!username) {
+            setSeerrStatus("Please enter the Seerr admin username.", false);
+            return;
+          }
+
+          setSeerrStatus("Connecting to Seerr...", null, true);
+          Dashboard.showLoadingMsg();
+
+          ApiClient.ajax({
+            type: "POST",
+            url: ApiClient.getUrl("Litefin/Seerr/Auth/Login"),
+            contentType: "application/json",
+            dataType: "json",
+            data: JSON.stringify({
+              SeerrUrl: seerrUrl,
+              Username: username,
+              Password: password,
+            }),
+          })
+            .then(function (result) {
+              Dashboard.hideLoadingMsg();
+              if (result && result.Success) {
+                document.querySelector("#txt-seerr-password").value = "";
+                loadSeerrConfiguration();
+                setSeerrStatus(
+                  "Logged in successfully. Seerr API key acquired and saved.",
+                  true,
+                );
+              } else {
+                setSeerrStatus(
+                  result && result.Message
+                    ? result.Message
+                    : "Authentication failed.",
+                  false,
+                );
+              }
+            })
+            .catch(function (err) {
+              Dashboard.hideLoadingMsg();
+              var msg =
+                err && err.responseJSON && err.responseJSON.Message
+                  ? err.responseJSON.Message
+                  : "Admin login failed. Check credentials.";
+              setSeerrStatus(msg, false);
+            });
+        }
+
+        // Holds the currently persisted Seerr Server URL from the configuration
+        var savedSeerrUrl = "";
+
+        /**
+         * Compares current input value with the persisted configuration URL.
+         * Toggles the Apple-styled warning pill below the input field.
+         */
+        function checkSeerrUrlChanged() {
+          // Retrieve and normalize the current input value
+          var urlInput = document.querySelector("#txt-seerr-url");
+          var currentUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+          var warningEl = document.querySelector("#seerr-url-unsaved-warning");
+
+          // Safely bail if element is not rendered
+          if (!warningEl) {
+            return;
+          }
+
+          // Reveal warning if the value differs from the saved configuration
+          if (currentUrl !== savedSeerrUrl) {
+            warningEl.style.display = "block";
+          } else {
+            warningEl.style.display = "none";
+          }
+        }
+
+        /**
+         * Toggles between the configured API key status card and the 3 connection methods.
+         * When an API key is present, hides the segmented control and all 3 tab panes.
+         * When no API key is present, reveals the 3 connection methods.
+         *
+         * @param {boolean} hasKey - True if an API key is configured.
+         */
+        function updateSeerrKeyVisibility(hasKey) {
+          var methodsContainer = document.querySelector("#seerr-connection-methods");
+          var configuredCard = document.querySelector("#seerr-key-configured-card");
+
+          if (!methodsContainer || !configuredCard) {
+            return;
+          }
+
+          if (hasKey) {
+            // Hide all 3 connection methods and display the configured status card
+            methodsContainer.style.display = "none";
+            configuredCard.style.display = "flex";
+          } else {
+            // Reveal connection methods and hide the configured status card
+            methodsContainer.style.display = "block";
+            configuredCard.style.display = "none";
+          }
+        }
+
+        /**
+         * Resets the configured Seerr API key, updates the server configuration,
+         * and re-displays the 3 connection methods so the user can re-authenticate.
+         */
+        function resetSeerrKey() {
+          if (!confirm("Are you sure you want to reset the Seerr API key? You will need to reconnect.")) {
+            return;
+          }
+
+          Dashboard.showLoadingMsg();
+          setSeerrStatus("Resetting API key...", null, true);
+
+          ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId)
+            .then(function (config) {
+              // Clear stored API key in plugin configuration
+              config.SeerrApiKey = "";
+
+              return ApiClient.updatePluginConfiguration(
+                LitefinConfig.pluginUniqueId,
+                config,
+              );
+            })
+            .then(function () {
+              // Clear the manual API key input field
+              var keyInput = document.querySelector("#txt-seerr-api-key");
+              if (keyInput) {
+                keyInput.value = "";
+              }
+
+              // Reveal connection methods and hide the configured state card
+              updateSeerrKeyVisibility(false);
+
+              // Update status display with clear feedback
+              setSeerrStatus("API key reset. Please select a connection method below to re-authenticate.", null);
+              Dashboard.hideLoadingMsg();
+            })
+            .catch(function (err) {
+              Dashboard.hideLoadingMsg();
+              var errMsg =
+                err && err.responseJSON && err.responseJSON.Message
+                  ? err.responseJSON.Message
+                  : "Failed to reset API key.";
+              setSeerrStatus(errMsg, false);
+            });
+        }
+
+        function loadSeerrConfiguration() {
+          // Fetch existing plugin configuration from Jellyfin server
+          ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(
+            function (config) {
+              // Cache normalized saved URL value for comparison
+              savedSeerrUrl = (config.SeerrUrl || "").trim().replace(/\/+$/, "");
+
+              var apiKey = (config.SeerrApiKey || "").trim();
+
+              // Populate input fields
+              document.querySelector("#txt-seerr-url").value =
+                config.SeerrUrl || "";
+              document.querySelector("#txt-seerr-api-key").value =
+                apiKey;
+
+              // Refresh warning state based on loaded configuration
+              checkSeerrUrlChanged();
+
+              // Toggle visibility: hide the 3 methods if key is configured
+              updateSeerrKeyVisibility(apiKey.length > 0);
+            },
+          );
+        }
+
+        function persistSeerrConfiguration() {
+          return ApiClient.getPluginConfiguration(
+            LitefinConfig.pluginUniqueId,
+          ).then(function (config) {
+            config.SeerrUrl = document
+              .querySelector("#txt-seerr-url")
+              .value.trim()
+              .replace(/\/+$/, "");
+            config.SeerrApiKey = document
+              .querySelector("#txt-seerr-api-key")
+              .value.trim();
+            return ApiClient.updatePluginConfiguration(
+              LitefinConfig.pluginUniqueId,
+              config,
+            );
+          });
+        }
+
+        /**
+         * Persists the Seerr server base URL independently to plugin configuration.
+         * Validates the URL input, trims trailing slashes, and updates the stored configuration.
+         */
+        function saveSeerrUrl() {
+          // Extract and sanitize the current URL input value
+          var urlInput = document.querySelector("#txt-seerr-url");
+          var seerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+
+          // Ensure input is not empty before updating configuration
+          if (!seerrUrl) {
+            setSeerrStatus("Please enter a valid Seerr Server URL.", false);
+            return;
+          }
+
+          // Reflect normalized URL in the text field
+          urlInput.value = seerrUrl;
+
+          // Indicate active progress state in the UI
+          setSeerrStatus("Saving Seerr URL...", null, true);
+          Dashboard.showLoadingMsg();
+
+          // Fetch current plugin settings to preserve existing API key and backup records
+          ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId)
+            .then(function (config) {
+              // Update the Seerr URL setting
+              config.SeerrUrl = seerrUrl;
+
+              // Persist the modified configuration back to the Jellyfin server
+              return ApiClient.updatePluginConfiguration(
+                LitefinConfig.pluginUniqueId,
+                config,
+              );
+            })
+            .then(function () {
+              // Update local saved reference and hide warning
+              savedSeerrUrl = seerrUrl;
+              checkSeerrUrlChanged();
+
+              // Notify user of successful save operation
+              setSeerrStatus("Seerr URL saved successfully.", true);
+              Dashboard.hideLoadingMsg();
+            })
+            .catch(function (err) {
+              // Handle any error gracefully with clear user feedback
+              var errMsg =
+                err && err.responseJSON && err.responseJSON.Message
+                  ? err.responseJSON.Message
+                  : "Unable to save Seerr URL.";
+              setSeerrStatus(errMsg, false);
+              Dashboard.hideLoadingMsg();
+            });
+        }
+
+        function saveSeerrConfiguration() {
+          Dashboard.showLoadingMsg();
+          persistSeerrConfiguration()
+            .then(function () {
+              // Update local saved URL reference on successful manual save
+              var urlInput = document.querySelector("#txt-seerr-url");
+              savedSeerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+              checkSeerrUrlChanged();
+
+              // Update visibility based on newly saved API key
+              var apiKey = (document.querySelector("#txt-seerr-api-key").value || "").trim();
+              updateSeerrKeyVisibility(apiKey.length > 0);
+
+              setSeerrStatus("API key saved manually.", true);
+              Dashboard.hideLoadingMsg();
+            })
+            .catch(function () {
+              setSeerrStatus("Unable to save Seerr settings.", false);
+              Dashboard.hideLoadingMsg();
+            });
+        }
+
+        /**
+         * Pings the Seerr server public status endpoint to test reachability
+         * from the Jellyfin host without requiring an API key or session credentials.
+         */
+        function testSeerrServer() {
+          // Read and normalize target Seerr URL
+          var urlInput = document.querySelector("#txt-seerr-url");
+          var seerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+
+          // Ensure a target URL has been provided by the user
+          if (!seerrUrl) {
+            setSeerrStatus("Please enter a Seerr Server URL to test.", false);
+            return;
+          }
+
+          // Indicate ongoing ping operation in the UI
+          setSeerrStatus("Pinging Seerr server...", null, true);
+          Dashboard.showLoadingMsg();
+
+          // Dispatch ping request to plugin backend
+          ApiClient.ajax({
+            type: "POST",
+            url: ApiClient.getUrl("Litefin/Seerr/Status/Ping"),
+            contentType: "application/json",
+            dataType: "json",
+            data: JSON.stringify({ SeerrUrl: seerrUrl }),
+          })
+            .then(function (result) {
+              Dashboard.hideLoadingMsg();
+              if (result && result.reachable) {
+                // Success: Server is online and responded to public ping
+                setSeerrStatus(
+                  result.message || "Seerr server is online and reachable.",
+                  true,
+                );
+              } else {
+                // Failure: Display specific error message returned by the server
+                setSeerrStatus(
+                  result && result.message
+                    ? result.message
+                    : "Seerr server is unreachable. Check URL and network.",
+                  false,
+                );
+              }
+            })
+            .catch(function (err) {
+              Dashboard.hideLoadingMsg();
+              var errMsg =
+                err && err.responseJSON && err.responseJSON.message
+                  ? err.responseJSON.message
+                  : "Unable to reach Seerr server. Check host, port, and firewall.";
+              setSeerrStatus(errMsg, false);
+            });
+        }
+
+        /**
+         * Performs full integration test verifying reachability and API key authentication.
+         */
+        function testSeerrConnection() {
+          var urlInput = document.querySelector("#txt-seerr-url");
+          var keyInput = document.querySelector("#txt-seerr-api-key");
+          var seerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+          var apiKey = keyInput ? keyInput.value.trim() : "";
+
+          // Ensure a target URL has been provided by the user
+          if (!seerrUrl) {
+            setSeerrStatus("Please enter a Seerr Server URL to test.", false);
+            return;
+          }
+
+          setSeerrStatus("Testing connection...", null, true);
+          Dashboard.showLoadingMsg();
+
+          ApiClient.ajax({
+            type: "POST",
+            url: ApiClient.getUrl("Litefin/Seerr/Status/Test"),
+            contentType: "application/json",
+            dataType: "json",
+            data: JSON.stringify({
+              SeerrUrl: seerrUrl,
+              SeerrApiKey: apiKey,
+            }),
+          })
+            .then(function (result) {
+              Dashboard.hideLoadingMsg();
+              if (result && result.available) {
+                setSeerrStatus(
+                  result.message || "Connected and authenticated successfully.",
+                  true,
+                );
+              } else {
+                setSeerrStatus(
+                  result && result.message
+                    ? result.message
+                    : "Seerr is not reachable or rejected the key.",
+                  false,
+                );
+              }
+            })
+            .catch(function (err) {
+              Dashboard.hideLoadingMsg();
+              var errMsg =
+                err && err.responseJSON && err.responseJSON.message
+                  ? err.responseJSON.message
+                  : "Connection test failed. Check settings.";
+              setSeerrStatus(errMsg, false);
+            });
+        }
+
+        function loadBackupsList() {
+          Dashboard.showLoadingMsg();
+          ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(
+            function (config) {
+              var html = "";
+              var backups = (config.Backups || []).map(function (b, index) {
+                return { data: b, originalIndex: index };
+              });
+
+              // Sort newest first
+              backups.sort(function (a, b) {
+                return (
+                  new Date(b.data.DateCreated) - new Date(a.data.DateCreated)
+                );
+              });
+
+              if (backups.length === 0) {
+                html =
+                  '<tr><td colspan="8" style="padding: 2em 0; text-align: center; color: #71717a;">No stored user backups found.</td></tr>';
+              } else {
+                backups.forEach(function (item) {
+                  var backup = item.data;
+                  var index = item.originalIndex;
+                  var dateStr = new Date(backup.DateCreated).toLocaleString();
+                  var backupName = backup.Name || "(Auto)";
+                  var platformMap = {
+                    web: "Web",
+                    tizen: "Tizen",
+                    webos: "WebOS",
+                  };
+                  var platformDisplay =
+                    platformMap[backup.Platform] ||
+                    backup.Platform ||
+                    "Unknown";
+                  var appVersion = backup.AppVersion || "1.0.0";
+
+                  html += '<tr style="border-bottom: 1px solid #1f1f23;">';
+                  html +=
+                    '  <td style="padding: 0.9em 0; font-weight: 500; color: #f4f4f5;">' +
+                    escapeHtml(backupName) +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; color: #a1a1aa;">' +
+                    escapeHtml(backup.DeviceName || "Unknown") +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; color: #d4d4d8;">' +
+                    escapeHtml(backup.Username) +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; color: #71717a; font-family: monospace; font-size: 0.9em;">' +
+                    escapeHtml(backup.DeviceId || "Unknown") +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; color: #d4d4d8;">' +
+                    escapeHtml(platformDisplay) +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; color: #d4d4d8;">' +
+                    escapeHtml(appVersion) +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; color: #a1a1aa;">' +
+                    dateStr +
+                    "</td>";
+                  html +=
+                    '  <td style="padding: 0.9em 0; text-align: right; white-space: nowrap;">';
+                  html +=
+                    '    <button is="emby-button" type="button" class="raised btnExportBackup" data-index="' +
+                    index +
+                    '" style="margin: 0 6px 0 0; padding: 0.35em 0.8em; font-size: 0.85em; background: #27272a; border: 1px solid #3f3f46; color: white; border-radius: 6px; cursor: pointer;">Export</button>';
+                  html +=
+                    '    <button is="emby-button" type="button" class="raised btnDeleteBackup" data-index="' +
+                    index +
+                    '" style="margin: 0; padding: 0.35em 0.8em; font-size: 0.85em; background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: #fca5a5; border-radius: 6px; cursor: pointer;">Delete</button>';
+                  html += "  </td>";
+                  html += "</tr>";
                 });
+              }
+
+              var body = document.querySelector("#backups-table-body");
+              body.innerHTML = html;
+
+              // Bind export handlers
+              var exportBtns = body.querySelectorAll(".btnExportBackup");
+              exportBtns.forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                  var index = parseInt(this.getAttribute("data-index"));
+                  exportBackupRecord(index);
+                });
+              });
+
+              // Bind delete handlers
+              var deleteBtns = body.querySelectorAll(".btnDeleteBackup");
+              deleteBtns.forEach(function (btn) {
+                btn.addEventListener("click", function () {
+                  var index = parseInt(this.getAttribute("data-index"));
+                  deleteBackupRecord(index);
+                });
+              });
+
+              Dashboard.hideLoadingMsg();
+            },
+          );
+        }
+
+        function deleteBackupRecord(index) {
+          if (
+            confirm(
+              "Are you sure you want to delete this user's backup record?",
+            )
+          ) {
+            Dashboard.showLoadingMsg();
+            ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(
+              function (config) {
+                config.Backups.splice(index, 1);
+                ApiClient.updatePluginConfiguration(
+                  LitefinConfig.pluginUniqueId,
+                  config,
+                ).then(function () {
+                  loadBackupsList();
+                });
+              },
+            );
+          }
+        }
+
+        function exportBackupRecord(index) {
+          Dashboard.showLoadingMsg();
+          ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(
+            function (config) {
+              var backup = config.Backups[index];
+              if (!backup) {
+                Dashboard.hideLoadingMsg();
+                return;
+              }
+              var blob = new Blob([JSON.stringify([backup], null, 2)], {
+                type: "application/json",
+              });
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement("a");
+              a.href = url;
+              a.download =
+                (backup.Name || backup.DeviceName || "backup").replace(
+                  /[^a-zA-Z0-9 _-]/g,
+                  "",
+                ) +
+                "_" +
+                Date.now() +
+                ".json";
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+              Dashboard.hideLoadingMsg();
+            },
+          );
+        }
+
+        document
+          .querySelector("#LitefinBackupConfigPage")
+          .addEventListener("pageshow", function () {
+            setupTabSwitching();
+            loadSeerrConfiguration();
+            loadBackupsList();
+
+            // Wire up Seerr actions
+            // Listen to real-time input events on the Seerr URL field to track unsaved edits
+            var seerrUrlInput = document.querySelector("#txt-seerr-url");
+            if (seerrUrlInput) {
+              seerrUrlInput.oninput = checkSeerrUrlChanged;
+              seerrUrlInput.onchange = checkSeerrUrlChanged;
             }
 
-            document.querySelector('#LitefinBackupConfigPage')
-                .addEventListener('pageshow', function() {
-                    loadSeerrConfiguration();
-                    loadBackupsList();
+            // Test Server reachability button directly next to the URL input field
+            document.querySelector("#btn-test-seerr-server").onclick = testSeerrServer;
+            // Reset API key button to re-expose connection methods
+            var resetKeyBtn = document.querySelector("#btn-reset-seerr-key");
+            if (resetKeyBtn) {
+              resetKeyBtn.onclick = resetSeerrKey;
+            }
 
-                    document.querySelector('#btn-save-seerr').onclick = saveSeerrConfiguration;
-                    document.querySelector('#btn-test-seerr').onclick = testSeerrConnection;
+            // Save URL action button directly next to the URL input field
+            document.querySelector("#btn-save-seerr-url").onclick = saveSeerrUrl;
+            document.querySelector("#btn-start-qc").onclick = startQuickConnect;
+            document.querySelector("#btn-open-qc-page").onclick =
+              openQuickConnectWindow;
+            document.querySelector("#btn-auto-authorize-qc").onclick =
+              autoAuthorizeQuickConnect;
+            document.querySelector("#btn-cancel-qc").onclick =
+              cancelQuickConnect;
+            document.querySelector("#btn-login-seerr").onclick =
+              loginWithSeerrCredentials;
+            document.querySelector("#btn-save-seerr").onclick =
+              saveSeerrConfiguration;
+            document.querySelector("#btn-test-seerr").onclick =
+              testSeerrConnection;
 
-                    // Bind Export Action
-                    document.querySelector('#btn-export-backups').onclick = function() {
-                        Dashboard.showLoadingMsg();
-                        ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                            var backups = config.Backups || [];
-                            var blob = new Blob([JSON.stringify(backups, null, 2)], {type: 'application/json'});
-                            var url = URL.createObjectURL(blob);
-                            var a = document.createElement('a');
-                            a.href = url;
-                            a.download = 'litefin_backups_export_' + Date.now() + '.json';
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                            URL.revokeObjectURL(url);
-                            Dashboard.hideLoadingMsg();
-                        });
-                    };
-
-                    // Bind Refresh Action
-                    document.querySelector('#btn-refresh-backups').onclick = function() {
-                        loadBackupsList();
-                    };
-
-                    // Bind Import Action
-                    var fileInput = document.querySelector('#import-backups-file');
-                    document.querySelector('#btn-import-backups').onclick = function() {
-                        fileInput.click();
-                    };
-
-                    fileInput.onchange = function(e) {
-                        var file = e.target.files[0];
-                        if (!file) return;
-                        var reader = new FileReader();
-                        reader.onload = function(evt) {
-                            try {
-                                var imported = JSON.parse(evt.target.result);
-                                if (!Array.isArray(imported)) {
-                                    alert('Invalid backup file. Must be a JSON array of backup records.');
-                                    return;
-                                }
-
-                                Dashboard.showLoadingMsg();
-                                ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(function (config) {
-                                    var currentBackups = config.Backups || [];
-                                    
-                                    // Merge backups list by checking Id
-                                    imported.forEach(function (imp) {
-                                        // Ensure the minimal required fields are present
-                                        if (!imp.Id || !imp.UserId || !imp.Settings) return;
-                                        
-                                        var idx = currentBackups.findIndex(function (b) {
-                                            return b.Id === imp.Id;
-                                        });
-                                        
-                                        if (idx !== -1) {
-                                            currentBackups[idx] = imp;
-                                        } else {
-                                            currentBackups.push(imp);
-                                        }
-                                    });
-
-                                    config.Backups = currentBackups;
-                                    ApiClient.updatePluginConfiguration(LitefinConfig.pluginUniqueId, config).then(function () {
-                                        loadBackupsList();
-                                        alert('Backups successfully merged and imported.');
-                                    });
-                                });
-                            } catch (err) {
-                                alert('Error parsing file: ' + err.message);
-                            }
-                            fileInput.value = ''; // Reset file input
-                        };
-                        reader.readAsText(file);
-                    };
+            // Bind Export Action
+            document.querySelector("#btn-export-backups").onclick =
+              function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(
+                  LitefinConfig.pluginUniqueId,
+                ).then(function (config) {
+                  var backups = config.Backups || [];
+                  var blob = new Blob([JSON.stringify(backups, null, 2)], {
+                    type: "application/json",
+                  });
+                  var url = URL.createObjectURL(blob);
+                  var a = document.createElement("a");
+                  a.href = url;
+                  a.download = "litefin_backups_export_" + Date.now() + ".json";
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  Dashboard.hideLoadingMsg();
                 });
-        </script>
+              };
+
+            // Bind Refresh Action
+            document.querySelector("#btn-refresh-backups").onclick =
+              function () {
+                loadBackupsList();
+              };
+
+            // Bind Import Action
+            var fileInput = document.querySelector("#import-backups-file");
+            document.querySelector("#btn-import-backups").onclick =
+              function () {
+                fileInput.click();
+              };
+
+            fileInput.onchange = function (e) {
+              var file = e.target.files[0];
+              if (!file) return;
+              var reader = new FileReader();
+              reader.onload = function (evt) {
+                try {
+                  var imported = JSON.parse(evt.target.result);
+                  if (!Array.isArray(imported)) {
+                    alert(
+                      "Invalid backup file. Must be a JSON array of backup records.",
+                    );
+                    return;
+                  }
+
+                  Dashboard.showLoadingMsg();
+                  ApiClient.getPluginConfiguration(
+                    LitefinConfig.pluginUniqueId,
+                  ).then(function (config) {
+                    var currentBackups = config.Backups || [];
+
+                    imported.forEach(function (imp) {
+                      if (!imp.Id || !imp.UserId || !imp.Settings) return;
+
+                      var idx = currentBackups.findIndex(function (b) {
+                        return b.Id === imp.Id;
+                      });
+
+                      if (idx !== -1) {
+                        currentBackups[idx] = imp;
+                      } else {
+                        currentBackups.push(imp);
+                      }
+                    });
+
+                    config.Backups = currentBackups;
+                    ApiClient.updatePluginConfiguration(
+                      LitefinConfig.pluginUniqueId,
+                      config,
+                    ).then(function () {
+                      loadBackupsList();
+                      alert("Backups successfully merged and imported.");
+                    });
+                  });
+                } catch (err) {
+                  alert("Error parsing file: " + err.message);
+                }
+                fileInput.value = "";
+              };
+              reader.readAsText(file);
+            };
+          });
+      </script>
     </div>
-</body>
+  </body>
 </html>

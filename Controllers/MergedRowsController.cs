@@ -231,10 +231,11 @@ public class MergedRowsController : ControllerBase
         }
 
         // Sort descending by activity date so the most recently active item appears first (Plex-style)
+        // We constrain the results to the exact rowLimit requested by the client
         var finalSlice = itemsWithActivity
             .OrderByDescending(x => x.ActivityDate)
             .Select(x => x.Item)
-            .Take(rowLimit * 2)
+            .Take(rowLimit)
             .ToList();
 
         // Convert raw server entities into presentation DTO format

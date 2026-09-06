@@ -94,31 +94,491 @@ public class SeerrController : ControllerBase
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        if (!TryNormalizeConfiguration(request.SeerrUrl, request.SeerrApiKey, out var baseUrl, out var apiKey))
+        // Validate that a syntactically valid base URL has been supplied
+        if (!TryNormalizeUrl(request.SeerrUrl, out var baseUrl))
         {
-            return this.BadRequest(new { available = false, message = "A valid Seerr URL and API key are required." });
+            return this.BadRequest(new { available = false, message = "A valid Seerr URL is required." });
+        }
+
+        var hasApiKey = !string.IsNullOrWhiteSpace(request.SeerrApiKey);
+
+        try
+        {
+            // If an API key is present, verify full authentication against Seerr /auth/me
+            if (hasApiKey)
+            {
+                var apiKey = request.SeerrApiKey!.Trim();
+                using var response = await this.SendAsync(
+                    HttpMethod.Get,
+                    "/auth/me",
+                    null,
+                    baseUrl,
+                    apiKey,
+                    cancellationToken).ConfigureAwait(false);
+
+                // Successfully verified both reachability and API key authentication
+                if (response.IsSuccessStatusCode)
+                {
+                    return this.Ok(new { available = true, authenticated = true, message = "Connected and authenticated successfully." });
+                }
+
+                // Handle authorization rejection specifically
+                if ((int)response.StatusCode == 401 || (int)response.StatusCode == 403)
+                {
+                    return this.Ok(new { available = false, authenticated = false, message = "Seerr reached, but the API key was rejected." });
+                }
+
+                return this.Ok(new { available = false, authenticated = false, message = $"Seerr responded with HTTP {(int)response.StatusCode}." });
+            }
+
+            // If no API key was supplied, verify server reachability via public /api/v1/status
+            using var client = this.httpClientFactory.CreateClient();
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/v1/status");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            // Bound timeout for quick feedback
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(TimeSpan.FromSeconds(10));
+
+            using var pingResponse = await client.SendAsync(httpRequest, timeoutSource.Token).ConfigureAwait(false);
+            if (pingResponse.IsSuccessStatusCode)
+            {
+                return this.Ok(new
+                {
+                    available = true,
+                    authenticated = false,
+                    message = "Seerr server is online and reachable (no API key configured yet).",
+                });
+            }
+
+            return this.Ok(new
+            {
+                available = false,
+                authenticated = false,
+                message = $"Seerr server returned HTTP {(int)pingResponse.StatusCode} ({pingResponse.ReasonPhrase}).",
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            this.logger.LogWarning(ex, "Unable to reach Seerr while testing settings at {BaseUrl}", baseUrl);
+            return this.Ok(new { available = false, message = $"Cannot reach server ({ex.Message}). Check IP, port, and network route." });
+        }
+        catch (TaskCanceledException ex)
+        {
+            this.logger.LogWarning(ex, "Timed out while testing Seerr settings at {BaseUrl}", baseUrl);
+            return this.Ok(new { available = false, message = "Connection timed out. Check IP/port and firewall settings." });
+        }
+    }
+
+    /// <summary>
+    /// Tests whether the specified Seerr server is reachable without requiring an API key.
+    /// </summary>
+    /// <param name="request">The server reachability test parameters.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>A status object indicating whether the server responded and details.</returns>
+    [HttpPost("Status/Ping")]
+    [Authorize(Policy = "RequiresElevation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<object>> PingServer(
+        [FromBody] SeerrServerTestRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Normalize and validate the provided Seerr base URL
+        if (!TryNormalizeUrl(request.SeerrUrl, out var baseUrl))
+        {
+            return this.BadRequest(new { reachable = false, message = "A valid Seerr URL is required." });
         }
 
         try
         {
-            using var response = await this.SendAsync(
-                HttpMethod.Get,
-                "/auth/me",
-                null,
-                baseUrl,
-                apiKey,
-                cancellationToken).ConfigureAwait(false);
-            return this.Ok(new { available = response.IsSuccessStatusCode });
+            // Contact Seerr's public unauthenticated status endpoint
+            using var client = this.httpClientFactory.CreateClient();
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/v1/status");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            // Apply a 10-second timeout to prevent UI hangs
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(TimeSpan.FromSeconds(10));
+
+            using var response = await client.SendAsync(httpRequest, timeoutSource.Token).ConfigureAwait(false);
+            if (response.IsSuccessStatusCode)
+            {
+                return this.Ok(new
+                {
+                    reachable = true,
+                    statusCode = (int)response.StatusCode,
+                    message = "Seerr server is online and reachable.",
+                });
+            }
+
+            return this.Ok(new
+            {
+                reachable = false,
+                statusCode = (int)response.StatusCode,
+                message = $"Server responded with HTTP {(int)response.StatusCode} ({response.ReasonPhrase}).",
+            });
         }
         catch (HttpRequestException ex)
         {
-            this.logger.LogWarning(ex, "Unable to reach Seerr while testing temporary administrator settings");
-            return this.Ok(new { available = false });
+            this.logger.LogWarning(ex, "Unable to reach Seerr server at {BaseUrl}", baseUrl);
+            return this.Ok(new
+            {
+                reachable = false,
+                message = $"Cannot reach server ({ex.Message}). Check IP, port, and network route.",
+            });
         }
         catch (TaskCanceledException ex)
         {
-            this.logger.LogWarning(ex, "Timed out while testing temporary administrator Seerr settings");
-            return this.Ok(new { available = false });
+            this.logger.LogWarning(ex, "Timed out pinging Seerr server at {BaseUrl}", baseUrl);
+            return this.Ok(new
+            {
+                reachable = false,
+                message = "Connection timed out. Check IP/port and firewall settings.",
+            });
+        }
+    }
+
+    /// <summary>
+    /// Initiates a Quick Connect pairing session with Seerr.
+    /// </summary>
+    /// <param name="request">The Quick Connect initiation parameters containing SeerrUrl.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>A response containing the 6-character user code and status secret.</returns>
+    [HttpPost("Auth/QuickConnect/Initiate")]
+    [Authorize(Policy = "RequiresElevation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<SeerrQuickConnectInitiateResult>> InitiateQuickConnect(
+        [FromBody] SeerrQuickConnectInitiateRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Normalize Seerr base URL ensuring valid HTTP/HTTPS scheme
+        if (!TryNormalizeUrl(request.SeerrUrl, out var baseUrl))
+        {
+            return this.BadRequest(new { message = "A valid Seerr URL is required." });
+        }
+
+        try
+        {
+            // Contact Seerr's Quick Connect initiation endpoint directly
+            using var client = this.httpClientFactory.CreateClient();
+            using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v1/auth/jellyfin/quickconnect/initiate");
+            httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(RequestTimeout);
+
+            using var response = await client.SendAsync(httpRequest, timeoutSource.Token).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                this.logger.LogWarning("Seerr Quick Connect initiate failed with status {StatusCode}", response.StatusCode);
+                return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Seerr rejected the Quick Connect initiate request. Ensure Quick Connect is enabled in Jellyfin and Seerr." });
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            var code = doc.RootElement.TryGetProperty("code", out var codeProp) ? codeProp.GetString() : string.Empty;
+            var secret = doc.RootElement.TryGetProperty("secret", out var secretProp) ? secretProp.GetString() : string.Empty;
+
+            if (string.IsNullOrWhiteSpace(code) || string.IsNullOrWhiteSpace(secret))
+            {
+                return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Seerr returned an incomplete Quick Connect response." });
+            }
+
+            return this.Ok(new SeerrQuickConnectInitiateResult
+            {
+                Code = code,
+                Secret = secret,
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            this.logger.LogWarning(ex, "Failed to reach Seerr for Quick Connect initiate at {Url}", baseUrl);
+            return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to contact Seerr server." });
+        }
+        catch (TaskCanceledException ex)
+        {
+            this.logger.LogWarning(ex, "Timed out waiting for Seerr Quick Connect initiate at {Url}", baseUrl);
+            return this.StatusCode(StatusCodes.Status504GatewayTimeout, new { message = "The request to Seerr timed out." });
+        }
+    }
+
+    /// <summary>
+    /// Checks Quick Connect authorization status with Seerr and automatically extracts and persists the API key once authorized.
+    /// </summary>
+    /// <param name="request">The check request containing SeerrUrl and the secret.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>A status result indicating authorization status and save success.</returns>
+    [HttpPost("Auth/QuickConnect/Check")]
+    [Authorize(Policy = "RequiresElevation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<SeerrQuickConnectCheckResult>> CheckQuickConnect(
+        [FromBody] SeerrQuickConnectCheckRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Validate Seerr base URL and secret
+        if (!TryNormalizeUrl(request.SeerrUrl, out var baseUrl) || string.IsNullOrWhiteSpace(request.Secret))
+        {
+            return this.BadRequest(new { message = "A valid Seerr URL and Secret are required." });
+        }
+
+        try
+        {
+            using var client = this.httpClientFactory.CreateClient();
+
+            // Step 1: Query Seerr's Quick Connect check endpoint to see if administrator approved the code
+            var checkUrl = $"{baseUrl}/api/v1/auth/jellyfin/quickconnect/check?secret={Uri.EscapeDataString(request.Secret)}";
+            using var checkRequest = new HttpRequestMessage(HttpMethod.Get, checkUrl);
+            checkRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(RequestTimeout);
+
+            using var checkResponse = await client.SendAsync(checkRequest, timeoutSource.Token).ConfigureAwait(false);
+            if (!checkResponse.IsSuccessStatusCode)
+            {
+                return this.Ok(new SeerrQuickConnectCheckResult
+                {
+                    Authenticated = false,
+                    Success = false,
+                    Message = "Pending approval or expired code.",
+                });
+            }
+
+            using var checkStream = await checkResponse.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var checkDoc = await JsonDocument.ParseAsync(checkStream, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+            var isAuthenticated = checkDoc.RootElement.TryGetProperty("authenticated", out var authProp) && authProp.GetBoolean();
+            if (!isAuthenticated)
+            {
+                // Still waiting for administrator to authorize code
+                return this.Ok(new SeerrQuickConnectCheckResult
+                {
+                    Authenticated = false,
+                    Success = false,
+                });
+            }
+
+            // Step 2: Exchange authorized secret for an authenticated session with Seerr
+            var authPayload = JsonSerializer.Serialize(new { secret = request.Secret });
+            using var exchangeRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v1/auth/jellyfin/quickconnect/authenticate")
+            {
+                Content = new StringContent(authPayload, Encoding.UTF8, MediaTypeNames.Application.Json),
+            };
+            exchangeRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            using var exchangeResponse = await client.SendAsync(exchangeRequest, timeoutSource.Token).ConfigureAwait(false);
+            if (!exchangeResponse.IsSuccessStatusCode)
+            {
+                return this.StatusCode(StatusCodes.Status502BadGateway, new SeerrQuickConnectCheckResult
+                {
+                    Authenticated = true,
+                    Success = false,
+                    Message = "Quick Connect authorization confirmed, but failed to establish session with Seerr.",
+                });
+            }
+
+            // Extract session cookie from Seerr response (connect.sid)
+            var cookieHeader = GetCookieHeader(exchangeResponse);
+            if (string.IsNullOrWhiteSpace(cookieHeader))
+            {
+                return this.StatusCode(StatusCodes.Status502BadGateway, new SeerrQuickConnectCheckResult
+                {
+                    Authenticated = true,
+                    Success = false,
+                    Message = "Seerr session cookie missing after authentication.",
+                });
+            }
+
+            // Step 3: Fetch Seerr's main settings to extract the server's API key
+            var apiKey = await this.FetchSeerrApiKeyAsync(baseUrl, cookieHeader, timeoutSource.Token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return this.StatusCode(StatusCodes.Status502BadGateway, new SeerrQuickConnectCheckResult
+                {
+                    Authenticated = true,
+                    Success = false,
+                    Message = "Quick Connect authorized, but this Jellyfin account lacks administrator rights in Seerr to retrieve the API key.",
+                });
+            }
+
+            // Step 4: Persist the configuration in the Litefin plugin
+            SaveSeerrConfiguration(baseUrl, apiKey);
+
+            this.logger.LogInformation("Successfully paired Litefin with Seerr via Quick Connect at {Url}", baseUrl);
+
+            return this.Ok(new SeerrQuickConnectCheckResult
+            {
+                Authenticated = true,
+                Success = true,
+                Message = "Quick Connect pairing successful! Seerr API key acquired and saved.",
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            this.logger.LogWarning(ex, "HTTP error during Seerr Quick Connect check at {Url}", baseUrl);
+            return this.StatusCode(StatusCodes.Status502BadGateway, new SeerrQuickConnectCheckResult
+            {
+                Authenticated = false,
+                Success = false,
+                Message = "Unable to contact Seerr server.",
+            });
+        }
+        catch (TaskCanceledException ex)
+        {
+            this.logger.LogWarning(ex, "Timeout during Seerr Quick Connect check at {Url}", baseUrl);
+            return this.StatusCode(StatusCodes.Status504GatewayTimeout, new SeerrQuickConnectCheckResult
+            {
+                Authenticated = false,
+                Success = false,
+                Message = "Request to Seerr timed out.",
+            });
+        }
+    }
+
+    /// <summary>
+    /// Authenticates with Seerr using administrator credentials, retrieves the API key, and saves it.
+    /// </summary>
+    /// <param name="request">The administrator login credentials and Seerr URL.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>A status result indicating whether the API key was acquired and saved.</returns>
+    [HttpPost("Auth/Login")]
+    [Authorize(Policy = "RequiresElevation")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<SeerrAdminLoginResult>> LoginWithCredentials(
+        [FromBody] SeerrAdminLoginRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // Validate basic inputs
+        if (!TryNormalizeUrl(request.SeerrUrl, out var baseUrl)
+            || string.IsNullOrWhiteSpace(request.Username))
+        {
+            return this.BadRequest(new { message = "Seerr URL and Username are required." });
+        }
+
+        var password = request.Password ?? string.Empty;
+
+        try
+        {
+            using var client = this.httpClientFactory.CreateClient();
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(RequestTimeout);
+
+            // Attempt Jellyfin authentication endpoint on Seerr first
+            var jellyfinLoginPayload = JsonSerializer.Serialize(new
+            {
+                username = request.Username,
+                password = password,
+            });
+
+            using var jfRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v1/auth/jellyfin")
+            {
+                Content = new StringContent(jellyfinLoginPayload, Encoding.UTF8, MediaTypeNames.Application.Json),
+            };
+            jfRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            using var jfResponse = await client.SendAsync(jfRequest, timeoutSource.Token).ConfigureAwait(false);
+
+            string? cookieHeader = null;
+            if (jfResponse.IsSuccessStatusCode)
+            {
+                cookieHeader = GetCookieHeader(jfResponse);
+            }
+            else
+            {
+                // Fallback: Attempt local Seerr login in case local authentication is used
+                var localLoginPayload = JsonSerializer.Serialize(new
+                {
+                    email = request.Username,
+                    password = password,
+                });
+
+                using var localRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v1/auth/local")
+                {
+                    Content = new StringContent(localLoginPayload, Encoding.UTF8, MediaTypeNames.Application.Json),
+                };
+                localRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+                using var localResponse = await client.SendAsync(localRequest, timeoutSource.Token).ConfigureAwait(false);
+                if (localResponse.IsSuccessStatusCode)
+                {
+                    cookieHeader = GetCookieHeader(localResponse);
+                }
+                else
+                {
+                    this.logger.LogWarning("Seerr login failed with status {StatusCode} (JF) and {LocalStatusCode} (Local)", jfResponse.StatusCode, localResponse.StatusCode);
+                    return this.StatusCode(StatusCodes.Status401Unauthorized, new SeerrAdminLoginResult
+                    {
+                        Success = false,
+                        Message = "Invalid Seerr credentials or account not found.",
+                    });
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(cookieHeader))
+            {
+                return this.StatusCode(StatusCodes.Status502BadGateway, new SeerrAdminLoginResult
+                {
+                    Success = false,
+                    Message = "Seerr session cookie missing after authentication.",
+                });
+            }
+
+            // Query Seerr settings/main to obtain the administrator API key
+            var apiKey = await this.FetchSeerrApiKeyAsync(baseUrl, cookieHeader, timeoutSource.Token).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return this.StatusCode(StatusCodes.Status403Forbidden, new SeerrAdminLoginResult
+                {
+                    Success = false,
+                    Message = "Authentication succeeded, but this user account lacks administrator privileges in Seerr.",
+                });
+            }
+
+            // Persist the configuration in the Litefin plugin
+            SaveSeerrConfiguration(baseUrl, apiKey);
+
+            this.logger.LogInformation("Successfully configured Seerr via admin login at {Url}", baseUrl);
+
+            return this.Ok(new SeerrAdminLoginResult
+            {
+                Success = true,
+                Message = "Logged in successfully! Seerr API key acquired and saved.",
+            });
+        }
+        catch (HttpRequestException ex)
+        {
+            this.logger.LogWarning(ex, "HTTP error during Seerr admin login at {Url}", baseUrl);
+            return this.StatusCode(StatusCodes.Status502BadGateway, new SeerrAdminLoginResult
+            {
+                Success = false,
+                Message = "Unable to contact Seerr server.",
+            });
+        }
+        catch (TaskCanceledException ex)
+        {
+            this.logger.LogWarning(ex, "Timeout during Seerr admin login at {Url}", baseUrl);
+            return this.StatusCode(StatusCodes.Status504GatewayTimeout, new SeerrAdminLoginResult
+            {
+                Success = false,
+                Message = "Request to Seerr timed out.",
+            });
         }
     }
 
@@ -528,21 +988,39 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
 
     /// <summary>
-    /// Gets Seerr requests list for display on TV discovery screens.
+    /// Gets Seerr requests list scoped specifically to the authenticated Jellyfin user.
     /// </summary>
     /// <param name="take">Number of requests to return.</param>
     /// <param name="skip">Number of requests to skip.</param>
     /// <param name="filter">Request status filter.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
-    /// <returns>The Seerr requests list payload.</returns>
+    /// <returns>The Seerr requests list payload for the current user.</returns>
     [HttpGet("Requests")]
     [HttpGet("request")]
-    public Task<IActionResult> GetRequests(
+    public async Task<IActionResult> GetRequests(
         [FromQuery] int take = 20,
         [FromQuery] int skip = 0,
         [FromQuery] string filter = "all",
         CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/request?take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&skip={Math.Max(0, skip).ToString(CultureInfo.InvariantCulture)}&filter={Uri.EscapeDataString(filter)}", cancellationToken);
+    {
+        // Resolve the authenticated user's Seerr ID to scope requests
+        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!userId.HasValue)
+        {
+            // If the user is not linked to Seerr, return an empty payload
+            return this.Ok(new
+            {
+                page = 1,
+                totalPages = 1,
+                totalResults = 0,
+                results = Array.Empty<object>(),
+            });
+        }
+
+        // Scope to the specific user via requestedBy parameter and proxy as that user
+        var path = $"/request?take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&skip={Math.Max(0, skip).ToString(CultureInfo.InvariantCulture)}&filter={Uri.EscapeDataString(filter)}&requestedBy={userId.Value.ToString(CultureInfo.InvariantCulture)}";
+        return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, userId.Value).ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Gets recently added media items from Seerr.
@@ -849,19 +1327,69 @@ public class SeerrController : ControllerBase
         return TryNormalizeConfiguration(configuration?.SeerrUrl, configuration?.SeerrApiKey, out baseUrl, out apiKey);
     }
 
+    private static bool TryNormalizeUrl(string? configuredUrl, out string baseUrl)
+    {
+        baseUrl = configuredUrl?.Trim().TrimEnd('/') ?? string.Empty;
+        return Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static bool TryNormalizeConfiguration(
         string? configuredUrl,
         string? configuredApiKey,
         out string baseUrl,
         out string apiKey)
     {
-        baseUrl = configuredUrl?.Trim().TrimEnd('/') ?? string.Empty;
         apiKey = configuredApiKey?.Trim() ?? string.Empty;
+        return TryNormalizeUrl(configuredUrl, out baseUrl) && !string.IsNullOrWhiteSpace(apiKey);
+    }
 
-        return Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
-            && (uri.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
-                || uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            && !string.IsNullOrWhiteSpace(apiKey);
+    private static string? GetCookieHeader(HttpResponseMessage response)
+    {
+        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
+        {
+            var cookieList = cookies.Select(c => c.Split(';')[0].Trim()).Where(c => !string.IsNullOrWhiteSpace(c));
+            return string.Join("; ", cookieList);
+        }
+
+        return null;
+    }
+
+    private static void SaveSeerrConfiguration(string baseUrl, string apiKey)
+    {
+        var plugin = Plugin.Instance;
+        if (plugin != null)
+        {
+            plugin.Configuration.SeerrUrl = baseUrl;
+            plugin.Configuration.SeerrApiKey = apiKey;
+            plugin.SaveConfiguration();
+        }
+    }
+
+    private async Task<string?> FetchSeerrApiKeyAsync(string baseUrl, string cookieHeader, CancellationToken cancellationToken)
+    {
+        using var client = this.httpClientFactory.CreateClient();
+        using var settingsRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/v1/settings/main");
+        settingsRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+        settingsRequest.Headers.Add("Cookie", cookieHeader);
+
+        using var settingsResponse = await client.SendAsync(settingsRequest, cancellationToken).ConfigureAwait(false);
+        if (!settingsResponse.IsSuccessStatusCode)
+        {
+            this.logger.LogWarning("Failed to query Seerr main settings with status {StatusCode}", settingsResponse.StatusCode);
+            return null;
+        }
+
+        using var stream = await settingsResponse.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (doc.RootElement.TryGetProperty("apiKey", out var apiKeyProp))
+        {
+            return apiKeyProp.GetString();
+        }
+
+        return null;
     }
 
     /// <summary>
