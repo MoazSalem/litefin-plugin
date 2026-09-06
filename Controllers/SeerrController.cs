@@ -7,6 +7,7 @@
 namespace Litefin.Plugin.Controllers;
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -33,6 +34,11 @@ using Microsoft.Extensions.Logging;
 public class SeerrController : ControllerBase
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
+    // In-memory cache holding non-admin blocklist visibility permissions
+    // Keyed by Jellyfin User ID to avoid repeated upstream network roundtrips
+    private static readonly ConcurrentDictionary<Guid, (bool CanView, DateTime ExpiresAt)> BlocklistPermissionCache = new();
+
     private readonly IHttpClientFactory httpClientFactory;
     private readonly ILogger<SeerrController> logger;
 
@@ -1367,6 +1373,133 @@ public class SeerrController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Checks whether a media item status property equals MediaStatus.BLOCKLISTED (value 6).
+    /// </summary>
+    /// <param name="prop">The JSON element representing the status value.</param>
+    /// <returns><c>true</c> if the status represents a blocklisted title; otherwise <c>false</c>.</returns>
+    private static bool IsBlocklistedStatus(JsonElement prop)
+    {
+        // Check numeric representation
+        if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var num))
+        {
+            return num == 6;
+        }
+
+        // Check string representation
+        if (prop.ValueKind == JsonValueKind.String && int.TryParse(prop.GetString(), out var strNum))
+        {
+            return strNum == 6;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Inspects a JSON element representing a media item or mediaInfo object to determine if it is blocklisted.
+    /// </summary>
+    /// <param name="element">The JSON element to test.</param>
+    /// <returns><c>true</c> if marked as blocklisted; otherwise <c>false</c>.</returns>
+    private static bool IsBlocklisted(JsonElement element)
+    {
+        // Must be a valid JSON object
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        // Check embedded mediaInfo object (standard format for discover, search, and detail responses)
+        if (element.TryGetProperty("mediaInfo", out var mediaInfo) && mediaInfo.ValueKind == JsonValueKind.Object)
+        {
+            // Standard media status
+            if (mediaInfo.TryGetProperty("status", out var statusProp) && IsBlocklistedStatus(statusProp))
+            {
+                return true;
+            }
+
+            // 4K media status
+            if (mediaInfo.TryGetProperty("status4k", out var status4kProp) && IsBlocklistedStatus(status4kProp))
+            {
+                return true;
+            }
+        }
+
+        // Check top-level status properties (common when querying /media or /recentlyadded directly)
+        if (element.TryGetProperty("status", out var rootStatusProp) && IsBlocklistedStatus(rootStatusProp))
+        {
+            return true;
+        }
+
+        if (element.TryGetProperty("status4k", out var rootStatus4kProp) && IsBlocklistedStatus(rootStatus4kProp))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Filters out blocklisted items from an embedded container object containing a "results" array (e.g. similar or recommendations).
+    /// </summary>
+    /// <param name="container">The sub-container JSON element.</param>
+    /// <param name="filteredResults">The resulting filtered items list.</param>
+    /// <returns><c>true</c> if any blocklisted items were removed; otherwise <c>false</c>.</returns>
+    private static bool TryFilterResultsArray(JsonElement container, out List<JsonElement> filteredResults)
+    {
+        filteredResults = new List<JsonElement>();
+
+        // Ensure container is an object with an array property named "results"
+        if (container.ValueKind != JsonValueKind.Object
+            || !container.TryGetProperty("results", out var resProp)
+            || resProp.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        var modified = false;
+
+        // Iterate through items and exclude blocklisted media
+        foreach (var item in resProp.EnumerateArray())
+        {
+            if (IsBlocklisted(item))
+            {
+                modified = true;
+            }
+            else
+            {
+                filteredResults.Add(item.Clone());
+            }
+        }
+
+        return modified;
+    }
+
+    /// <summary>
+    /// Rebuilds a container object replacing its "results" array with the filtered item list.
+    /// </summary>
+    /// <param name="container">The original container element.</param>
+    /// <param name="filteredResults">The filtered results array.</param>
+    /// <returns>A dictionary representing the reconstructed container object.</returns>
+    private static Dictionary<string, object> RebuildContainerWithResults(JsonElement container, List<JsonElement> filteredResults)
+    {
+        var dict = new Dictionary<string, object>();
+
+        // Copy existing properties, substituting the filtered results array
+        foreach (var prop in container.EnumerateObject())
+        {
+            if (prop.NameEquals("results"))
+            {
+                dict[prop.Name] = filteredResults;
+            }
+            else
+            {
+                dict[prop.Name] = prop.Value.Clone();
+            }
+        }
+
+        return dict;
+    }
+
     private async Task<string?> FetchSeerrApiKeyAsync(string baseUrl, string cookieHeader, CancellationToken cancellationToken)
     {
         using var client = this.httpClientFactory.CreateClient();
@@ -1453,14 +1586,24 @@ public class SeerrController : ControllerBase
         var upstreamTotalPages = firstDoc.TryGetProperty("totalPages", out var tpProp) && tpProp.TryGetInt32(out var tpVal) ? tpVal : 1;
         var upstreamTotalResults = firstDoc.TryGetProperty("totalResults", out var trProp) && trProp.TryGetInt32(out var trVal) ? trVal : 0;
 
+        // Determine if the current authenticated user has administrative blocklist visibility
+        var canViewBlocklist = await this.CanUserViewBlocklistAsync(cancellationToken).ConfigureAwait(false);
+
+        // Collect and merge results across upstream pages, filtering blocklisted titles if non-admin
         var mergedResults = new List<JsonElement>();
         foreach (var doc in validDocs)
         {
+            // Inspect document for results array
             if (doc.TryGetProperty("results", out var resProp) && resProp.ValueKind == JsonValueKind.Array)
             {
+                // Iterate through each candidate item
                 foreach (var item in resProp.EnumerateArray())
                 {
-                    mergedResults.Add(item.Clone());
+                    // Exclude blocklisted titles when browsing as a standard non-admin user
+                    if (canViewBlocklist || !IsBlocklisted(item))
+                    {
+                        mergedResults.Add(item.Clone());
+                    }
                 }
             }
         }
@@ -1498,6 +1641,23 @@ public class SeerrController : ControllerBase
             using var response = await this.SendAsync(method, path, body, cancellationToken, seerrUserId).ConfigureAwait(false);
             var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             var contentType = response.Content.Headers.ContentType?.ToString() ?? MediaTypeNames.Application.Json;
+
+            // Only evaluate blocklist filtering on successful GET requests returning JSON payloads
+            if (response.IsSuccessStatusCode && method == HttpMethod.Get && contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+            {
+                // Verify whether the requesting user is allowed to view blocklisted entries
+                var canViewBlocklist = await this.CanUserViewBlocklistAsync(cancellationToken).ConfigureAwait(false);
+                if (!canViewBlocklist)
+                {
+                    // Apply filtering logic; if modified or rejected (e.g. 404 for direct blocklisted detail), return filtered result
+                    var filteredResult = this.FilterBlocklistedContent(content);
+                    if (filteredResult != null)
+                    {
+                        return filteredResult;
+                    }
+                }
+            }
+
             return new ContentResult
             {
                 Content = content,
@@ -1657,5 +1817,297 @@ public class SeerrController : ControllerBase
         var claim = this.User.Claims.FirstOrDefault(
             candidate => candidate.Type.Equals("Jellyfin-UserId", StringComparison.OrdinalIgnoreCase));
         return Guid.TryParse(claim?.Value, out var userId) ? userId : null;
+    }
+
+    /// <summary>
+    /// Checks whether the currently authenticated user is permitted to view blocklisted media.
+    /// Returns true for Jellyfin administrators and users with Seerr MANAGE_BLOCKLIST or VIEW_BLOCKLIST permissions.
+    /// </summary>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns><c>true</c> if blocklisted items should be visible; otherwise <c>false</c>.</returns>
+    private async Task<bool> CanUserViewBlocklistAsync(CancellationToken cancellationToken)
+    {
+        // -------------------------------------------------------------------------
+        // 1. Jellyfin Administrator Check
+        // -------------------------------------------------------------------------
+        // Fast synchronous check: Jellyfin administrators always have elevated privileges.
+        if (this.User.IsInRole("Administrator")
+            || this.User.Claims.Any(c => (c.Type == System.Security.Claims.ClaimTypes.Role || c.Type.Equals("Role", StringComparison.OrdinalIgnoreCase))
+                && c.Value.Equals("Administrator", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        // -------------------------------------------------------------------------
+        // 2. Memory Cache Lookup for Non-Admin Accounts
+        // -------------------------------------------------------------------------
+        // Check if we already resolved permission for this Jellyfin user in the last 5 minutes.
+        var jellyfinUserId = this.GetAuthenticatedUserId();
+        if (jellyfinUserId.HasValue && BlocklistPermissionCache.TryGetValue(jellyfinUserId.Value, out var cached) && DateTime.UtcNow < cached.ExpiresAt)
+        {
+            return cached.CanView;
+        }
+
+        var canView = false;
+
+        // -------------------------------------------------------------------------
+        // 3. Upstream Seerr User Permission Evaluation
+        // -------------------------------------------------------------------------
+        // Look up the matching Seerr user account and inspect their permission bits.
+        // Permission bits: MANAGE_BLOCKLIST = 268435456 (0x10000000), VIEW_BLOCKLIST = 1073741824 (0x40000000)
+        var seerrUserId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        if (seerrUserId.HasValue)
+        {
+            const int manageBlocklist = 268435456;
+            const int viewBlocklist = 1073741824;
+            canView = await this.HasSeerrPermissionAsync(seerrUserId.Value, manageBlocklist | viewBlocklist, cancellationToken).ConfigureAwait(false);
+        }
+
+        // -------------------------------------------------------------------------
+        // 4. Cache Update
+        // -------------------------------------------------------------------------
+        // Cache the result for 5 minutes so subsequent pagination and slider requests are instant.
+        if (jellyfinUserId.HasValue)
+        {
+            BlocklistPermissionCache[jellyfinUserId.Value] = (canView, DateTime.UtcNow.AddMinutes(5));
+        }
+
+        return canView;
+    }
+
+    /// <summary>
+    /// Filters blocklisted media items from a raw JSON string returned by Seerr.
+    /// Handles lists, search results, collections, cast credits, and individual media details.
+    /// </summary>
+    /// <param name="content">The raw JSON content string.</param>
+    /// <returns>An <see cref="IActionResult"/> if modified or rejected; otherwise <c>null</c>.</returns>
+    private IActionResult? FilterBlocklistedContent(string content)
+    {
+        // Guard against empty strings
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            // ---------------------------------------------------------------------
+            // Handle Object Payloads
+            // ---------------------------------------------------------------------
+            if (root.ValueKind == JsonValueKind.Object)
+            {
+                // Case 1: Direct Movie or TV Details (e.g. /movie/{id} or /tv/{id})
+                // If the title itself is blocklisted, return a 404 NotFound so normal users cannot see it
+                if (IsBlocklisted(root))
+                {
+                    return this.NotFound(new { message = "Media item not found." });
+                }
+
+                // Case 2: Standard Paged Lists (e.g. /discover/trending, /search, /media)
+                if (root.TryGetProperty("results", out var resultsProp) && resultsProp.ValueKind == JsonValueKind.Array)
+                {
+                    var filteredResults = new List<JsonElement>();
+                    var modified = false;
+
+                    foreach (var item in resultsProp.EnumerateArray())
+                    {
+                        if (IsBlocklisted(item))
+                        {
+                            modified = true;
+                        }
+                        else
+                        {
+                            filteredResults.Add(item.Clone());
+                        }
+                    }
+
+                    // Return Ok with filtered payload if items were removed
+                    if (modified)
+                    {
+                        var dict = new Dictionary<string, object>();
+                        foreach (var prop in root.EnumerateObject())
+                        {
+                            if (prop.NameEquals("results"))
+                            {
+                                dict[prop.Name] = filteredResults;
+                            }
+                            else
+                            {
+                                dict[prop.Name] = prop.Value.Clone();
+                            }
+                        }
+
+                        return this.Ok(dict);
+                    }
+                }
+
+                // Case 3: Collections (e.g. /collection/{id}) containing a "parts" array
+                if (root.TryGetProperty("parts", out var partsProp) && partsProp.ValueKind == JsonValueKind.Array)
+                {
+                    var filteredParts = new List<JsonElement>();
+                    var modified = false;
+
+                    foreach (var part in partsProp.EnumerateArray())
+                    {
+                        if (IsBlocklisted(part))
+                        {
+                            modified = true;
+                        }
+                        else
+                        {
+                            filteredParts.Add(part.Clone());
+                        }
+                    }
+
+                    if (modified)
+                    {
+                        var dict = new Dictionary<string, object>();
+                        foreach (var prop in root.EnumerateObject())
+                        {
+                            if (prop.NameEquals("parts"))
+                            {
+                                dict[prop.Name] = filteredParts;
+                            }
+                            else
+                            {
+                                dict[prop.Name] = prop.Value.Clone();
+                            }
+                        }
+
+                        return this.Ok(dict);
+                    }
+                }
+
+                // Case 4: Person Filmography Credits (/person/{id}/combined_credits)
+                if (root.TryGetProperty("cast", out var castProp) && castProp.ValueKind == JsonValueKind.Array)
+                {
+                    var filteredCast = new List<JsonElement>();
+                    var filteredCrew = new List<JsonElement>();
+                    var modified = false;
+
+                    // Filter cast array
+                    foreach (var item in castProp.EnumerateArray())
+                    {
+                        if (IsBlocklisted(item))
+                        {
+                            modified = true;
+                        }
+                        else
+                        {
+                            filteredCast.Add(item.Clone());
+                        }
+                    }
+
+                    // Filter crew array if present
+                    if (root.TryGetProperty("crew", out var crewProp) && crewProp.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in crewProp.EnumerateArray())
+                        {
+                            if (IsBlocklisted(item))
+                            {
+                                modified = true;
+                            }
+                            else
+                            {
+                                filteredCrew.Add(item.Clone());
+                            }
+                        }
+                    }
+
+                    if (modified)
+                    {
+                        var dict = new Dictionary<string, object>();
+                        foreach (var prop in root.EnumerateObject())
+                        {
+                            if (prop.NameEquals("cast"))
+                            {
+                                dict[prop.Name] = filteredCast;
+                            }
+                            else if (prop.NameEquals("crew"))
+                            {
+                                dict[prop.Name] = filteredCrew;
+                            }
+                            else
+                            {
+                                dict[prop.Name] = prop.Value.Clone();
+                            }
+                        }
+
+                        return this.Ok(dict);
+                    }
+                }
+
+                // Case 5: Single Item Detail with embedded Similar or Recommendations
+                var hasSimilar = false;
+                List<JsonElement>? filteredSimilar = null;
+                if (root.TryGetProperty("similar", out var similarProp))
+                {
+                    hasSimilar = TryFilterResultsArray(similarProp, out filteredSimilar);
+                }
+
+                var hasRecs = false;
+                List<JsonElement>? filteredRecs = null;
+                if (root.TryGetProperty("recommendations", out var recsProp))
+                {
+                    hasRecs = TryFilterResultsArray(recsProp, out filteredRecs);
+                }
+
+                if (hasSimilar || hasRecs)
+                {
+                    var dict = new Dictionary<string, object>();
+                    foreach (var prop in root.EnumerateObject())
+                    {
+                        if (prop.NameEquals("similar") && hasSimilar && filteredSimilar != null)
+                        {
+                            dict[prop.Name] = RebuildContainerWithResults(similarProp, filteredSimilar);
+                        }
+                        else if (prop.NameEquals("recommendations") && hasRecs && filteredRecs != null)
+                        {
+                            dict[prop.Name] = RebuildContainerWithResults(recsProp, filteredRecs);
+                        }
+                        else
+                        {
+                            dict[prop.Name] = prop.Value.Clone();
+                        }
+                    }
+
+                    return this.Ok(dict);
+                }
+            }
+            else if (root.ValueKind == JsonValueKind.Array)
+            {
+                // -----------------------------------------------------------------
+                // Handle Direct Array Payloads
+                // -----------------------------------------------------------------
+                var filteredArray = new List<JsonElement>();
+                var modified = false;
+
+                foreach (var item in root.EnumerateArray())
+                {
+                    if (IsBlocklisted(item))
+                    {
+                        modified = true;
+                    }
+                    else
+                    {
+                        filteredArray.Add(item.Clone());
+                    }
+                }
+
+                if (modified)
+                {
+                    return this.Ok(filteredArray);
+                }
+            }
+        }
+        catch (JsonException ex)
+        {
+            this.logger.LogWarning(ex, "Failed to parse JSON while evaluating blocklist filtering");
+        }
+
+        return null;
     }
 }
