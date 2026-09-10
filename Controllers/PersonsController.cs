@@ -104,33 +104,35 @@ public class PersonsController : ControllerBase
         var targetPerson = this.libraryManager.GetItemById(personId);
         var targetPersonName = targetPerson?.Name;
 
-        // Query Movies (limit to 12 - UI displays 10 cards + 2 to trigger See All button)
+        var queryLimit = limit.GetValueOrDefault(100);
+
+        // Query Movies (up to queryLimit)
         var movies = this.libraryManager.GetItemList(new InternalItemsQuery(user)
         {
             PersonIds = [personId],
             IncludeItemTypes = [BaseItemKind.Movie],
             OrderBy = [(ItemSortBy.PremiereDate, SortOrder.Descending)],
-            Limit = 12,
+            Limit = queryLimit,
             Recursive = true,
         });
 
-        // Query Series (limit to 12 - UI displays 10 cards + 2 to trigger See All button)
+        // Query Series (up to queryLimit)
         var series = this.libraryManager.GetItemList(new InternalItemsQuery(user)
         {
             PersonIds = [personId],
             IncludeItemTypes = [BaseItemKind.Series],
             OrderBy = [(ItemSortBy.PremiereDate, SortOrder.Descending)],
-            Limit = 12,
+            Limit = queryLimit,
             Recursive = true,
         });
 
-        // Query Episodes (limit to 10 - UI displays 9 cards + 1 to trigger See All button)
+        // Query Episodes (limit to 15 - UI displays 10 cards across 2 rows + buffer to trigger See More button)
         var episodes = this.libraryManager.GetItemList(new InternalItemsQuery(user)
         {
             PersonIds = [personId],
             IncludeItemTypes = [BaseItemKind.Episode],
             OrderBy = [(ItemSortBy.PremiereDate, SortOrder.Descending)],
-            Limit = 10,
+            Limit = 15,
             Recursive = true,
         });
 

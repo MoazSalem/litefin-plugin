@@ -59,13 +59,18 @@
               and watchlists in Litefin. Choose an authentication method below.
             </p>
 
-            <!-- Seerr Server URL & Inline Save Action (Apple HIG Single-Row Layout) -->
+            <!-- Seerr Server URL & Inline Save Action -->
             <div class="inputContainer" style="margin-bottom: 1.5em">
               <!-- Label positioned with clean Apple-style typography hierarchy -->
               <label
                 class="inputLabel inputLabelUnfocused"
                 for="txt-seerr-url"
-                style="font-weight: 500; color: #e4e4e7; margin-bottom: 0.4em; display: block;"
+                style="
+                  font-weight: 500;
+                  color: #e4e4e7;
+                  margin-bottom: 0.4em;
+                  display: block;
+                "
                 >Seerr Server URL</label
               >
               <!-- Inline Flex Row: URL input on the left, Save button on the right -->
@@ -84,14 +89,9 @@
                   id="txt-seerr-url"
                   autocomplete="off"
                   placeholder="http://192.168.1.50:5055"
-                  style="
-                    border-radius: 8px;
-                    flex: 1;
-                    min-width: 0;
-                    margin: 0;
-                  "
+                  style="border-radius: 8px; flex: 1; min-width: 0; margin: 0"
                 />
-                <!-- Test Server reachability button (Apple HIG secondary control) -->
+                <!-- Test Server reachability button  -->
                 <button
                   is="emby-button"
                   type="button"
@@ -113,7 +113,7 @@
                 >
                   <span>Test Server</span>
                 </button>
-                <!-- Direct Save URL Action button aligned inline with input (Apple HIG primary control) -->
+                <!-- Direct Save URL Action button aligned inline with input -->
                 <button
                   is="emby-button"
                   type="button"
@@ -134,7 +134,7 @@
                   <span>Save URL</span>
                 </button>
               </div>
-              <!-- Dynamic unsaved changes warning notice (Apple HIG subtle caution pill) -->
+              <!-- Dynamic unsaved changes warning notice -->
               <div
                 id="seerr-url-unsaved-warning"
                 style="
@@ -151,15 +151,21 @@
                   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
                 "
               >
-                <span>The current URL differs from the saved configuration and is not saved yet. Click &ldquo;Save URL&rdquo; to apply.</span>
+                <span
+                  >The current URL differs from the saved configuration and is
+                  not saved yet. Click &ldquo;Save URL&rdquo; to apply.</span
+                >
               </div>
               <!-- Helper description beneath the inline group -->
-              <div class="fieldDescription" style="color: #71717a; margin-top: 0.4em;">
+              <div
+                class="fieldDescription"
+                style="color: #71717a; margin-top: 0.4em"
+              >
                 The base URL of your Seerr server without <code>/api/v1</code>.
               </div>
             </div>
 
-            <!-- Configured API Key Card (Apple HIG Sleek Status Component) -->
+            <!-- Configured API Key Card -->
             <div
               id="seerr-key-configured-card"
               style="
@@ -175,7 +181,7 @@
                 flex-wrap: wrap;
               "
             >
-              <div style="display: flex; align-items: center; gap: 14px;">
+              <div style="display: flex; align-items: center; gap: 14px">
                 <!-- Apple-style status indicator pill -->
                 <div
                   style="
@@ -191,10 +197,12 @@
                   "
                 >
                   <svg
-                    style="width: 18px; height: 18px; fill: #4ade80;"
+                    style="width: 18px; height: 18px; fill: #4ade80"
                     viewBox="0 0 24 24"
                   >
-                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                    <path
+                      d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
+                    />
                   </svg>
                 </div>
                 <div>
@@ -250,209 +258,353 @@
               <!-- Clean HIG Segmented Control -->
               <div
                 class="seerr-segmented-control"
-              style="
-                display: flex;
-                background: #202024;
-                border-radius: 8px;
-                padding: 4px;
-                gap: 4px;
-                margin-bottom: 1.5em;
-                user-select: none;
-              "
-            >
-              <button
-                type="button"
-                class="seerr-tab-btn active"
-                data-tab="quickconnect"
                 style="
-                  flex: 1;
-                  border: none;
-                  background: #2e2e34;
-                  color: #fff;
-                  padding: 9px 16px;
-                  border-radius: 6px;
-                  font-weight: 500;
-                  font-size: 0.9em;
-                  cursor: pointer;
-                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                  display: flex;
+                  background: #202024;
+                  border-radius: 8px;
+                  padding: 4px;
+                  gap: 4px;
+                  margin-bottom: 1.5em;
+                  user-select: none;
                 "
               >
-                Quick Connect
-              </button>
-              <button
-                type="button"
-                class="seerr-tab-btn"
-                data-tab="login"
-                style="
-                  flex: 1;
-                  border: none;
-                  background: transparent;
-                  color: #a1a1aa;
-                  padding: 9px 16px;
-                  border-radius: 6px;
-                  font-weight: 500;
-                  font-size: 0.9em;
-                  cursor: pointer;
-                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-                "
-              >
-                Admin Login
-              </button>
-              <button
-                type="button"
-                class="seerr-tab-btn"
-                data-tab="manual"
-                style="
-                  flex: 1;
-                  border: none;
-                  background: transparent;
-                  color: #a1a1aa;
-                  padding: 9px 16px;
-                  border-radius: 6px;
-                  font-weight: 500;
-                  font-size: 0.9em;
-                  cursor: pointer;
-                  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-                "
-              >
-                Manual API Key
-              </button>
-            </div>
-
-            <!-- TAB 1: Quick Connect Pairing -->
-            <div
-              id="tab-pane-quickconnect"
-              class="seerr-tab-pane"
-              style="display: block"
-            >
-              <div
-                style="
-                  background: rgba(255, 255, 255, 0.02);
-                  border: 1px solid #27272a;
-                  border-radius: 10px;
-                  padding: 1.5em;
-                  margin-bottom: 1.2em;
-                "
-              >
-                <div
+                <button
+                  type="button"
+                  class="seerr-tab-btn active"
+                  data-tab="quickconnect"
                   style="
-                    font-weight: 600;
-                    color: #f4f4f5;
-                    margin-bottom: 0.4em;
-                    font-size: 1em;
-                  "
-                >
-                  Quick Connect Pairing
-                </div>
-                <p
-                  style="
-                    margin: 0 0 1em 0;
-                    color: #a1a1aa;
+                    flex: 1;
+                    border: none;
+                    background: #2e2e34;
+                    color: #fff;
+                    padding: 9px 16px;
+                    border-radius: 6px;
+                    font-weight: 500;
                     font-size: 0.9em;
-                    line-height: 1.5;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
                   "
                 >
-                  Generates a Quick Connect verification PIN to authorize
-                  pairing without entering passwords.
-                </p>
-
-                <!-- Explicit Admin Clarification Box -->
-                <div
+                  Quick Connect
+                </button>
+                <button
+                  type="button"
+                  class="seerr-tab-btn"
+                  data-tab="login"
                   style="
-                    background: rgba(56, 189, 248, 0.08);
-                    border-left: 3px solid #38bdf8;
-                    padding: 0.85em 1.2em;
-                    border-radius: 4px;
-                    margin-bottom: 1.2em;
+                    flex: 1;
+                    border: none;
+                    background: transparent;
+                    color: #a1a1aa;
+                    padding: 9px 16px;
+                    border-radius: 6px;
+                    font-weight: 500;
+                    font-size: 0.9em;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
                   "
                 >
-                  <div
-                    style="color: #e0f2fe; font-size: 0.88em; line-height: 1.5"
-                  >
-                    <strong>Important Note:</strong> This pairing must be
-                    authorized by an <strong>Administrator account</strong> in
-                    your Jellyfin web client (Settings &rarr; Quick Connect) to
-                    allow Litefin to retrieve the server API key from Seerr.
-                  </div>
-                </div>
-
-                <!-- Code display card -->
-                <div
-                  id="qc-code-card"
+                  Admin Login
+                </button>
+                <button
+                  type="button"
+                  class="seerr-tab-btn"
+                  data-tab="manual"
                   style="
-                    display: none;
-                    text-align: center;
-                    padding: 1.5em;
-                    background: #09090b;
-                    border: 1px solid #3f3f46;
+                    flex: 1;
+                    border: none;
+                    background: transparent;
+                    color: #a1a1aa;
+                    padding: 9px 16px;
+                    border-radius: 6px;
+                    font-weight: 500;
+                    font-size: 0.9em;
+                    cursor: pointer;
+                    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                  "
+                >
+                  Manual API Key
+                </button>
+              </div>
+
+              <!-- TAB 1: Quick Connect Pairing -->
+              <div
+                id="tab-pane-quickconnect"
+                class="seerr-tab-pane"
+                style="display: block"
+              >
+                <div
+                  style="
+                    background: rgba(255, 255, 255, 0.02);
+                    border: 1px solid #27272a;
                     border-radius: 10px;
+                    padding: 1.5em;
                     margin-bottom: 1.2em;
                   "
                 >
                   <div
                     style="
-                      font-size: 0.8em;
+                      font-weight: 600;
+                      color: #f4f4f5;
+                      margin-bottom: 0.4em;
+                      font-size: 1em;
+                    "
+                  >
+                    Quick Connect Pairing
+                  </div>
+                  <p
+                    style="
+                      margin: 0 0 1em 0;
                       color: #a1a1aa;
-                      text-transform: uppercase;
-                      letter-spacing: 0.1em;
-                      margin-bottom: 0.5em;
+                      font-size: 0.9em;
+                      line-height: 1.5;
                     "
                   >
-                    Authorize this code in Jellyfin Web (Admin)
-                  </div>
+                    Generates a Quick Connect verification PIN to authorize
+                    pairing without entering passwords.
+                  </p>
+
+                  <!-- Explicit Admin Clarification Box -->
                   <div
-                    id="qc-code-display"
                     style="
-                      font-size: 2.4em;
-                      font-weight: 700;
-                      letter-spacing: 0.3em;
-                      color: #38bdf8;
-                      font-family: monospace;
-                      user-select: all;
+                      background: rgba(56, 189, 248, 0.08);
+                      border-left: 3px solid #38bdf8;
+                      padding: 0.85em 1.2em;
+                      border-radius: 4px;
+                      margin-bottom: 1.2em;
                     "
                   >
-                    ------
+                    <div
+                      style="
+                        color: #e0f2fe;
+                        font-size: 0.88em;
+                        line-height: 1.5;
+                      "
+                    >
+                      <strong>Important Note:</strong> This pairing must be
+                      authorized by an <strong>Administrator account</strong> in
+                      your Jellyfin web client (Settings &rarr; Quick Connect)
+                      to allow Litefin to retrieve the server API key from
+                      Seerr.
+                    </div>
                   </div>
+
+                  <!-- Code display card -->
+                  <div
+                    id="qc-code-card"
+                    style="
+                      display: none;
+                      text-align: center;
+                      padding: 1.5em;
+                      background: #09090b;
+                      border: 1px solid #3f3f46;
+                      border-radius: 10px;
+                      margin-bottom: 1.2em;
+                    "
+                  >
+                    <div
+                      style="
+                        font-size: 0.8em;
+                        color: #a1a1aa;
+                        text-transform: uppercase;
+                        letter-spacing: 0.1em;
+                        margin-bottom: 0.5em;
+                      "
+                    >
+                      Authorize this code in Jellyfin Web (Admin)
+                    </div>
+                    <div
+                      id="qc-code-display"
+                      style="
+                        font-size: 2.4em;
+                        font-weight: 700;
+                        letter-spacing: 0.3em;
+                        color: #38bdf8;
+                        font-family: monospace;
+                        user-select: all;
+                      "
+                    >
+                      ------
+                    </div>
+                    <div
+                      style="
+                        margin-top: 0.8em;
+                        font-size: 0.85em;
+                        color: #e4e4e7;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 8px;
+                      "
+                    >
+                      <span
+                        class="qc-spinner"
+                        style="
+                          display: inline-block;
+                          width: 12px;
+                          height: 12px;
+                          border: 2px solid rgba(56, 189, 248, 0.3);
+                          border-top-color: #38bdf8;
+                          border-radius: 50%;
+                          animation: qc-spin 0.8s linear infinite;
+                        "
+                      ></span>
+                      <span>Waiting for administrator authorization...</span>
+                    </div>
+                  </div>
+
                   <div
                     style="
-                      margin-top: 0.8em;
-                      font-size: 0.85em;
-                      color: #e4e4e7;
                       display: flex;
                       align-items: center;
-                      justify-content: center;
-                      gap: 8px;
+                      gap: 12px;
+                      flex-wrap: wrap;
                     "
                   >
-                    <span
-                      class="qc-spinner"
+                    <button
+                      is="emby-button"
+                      type="button"
+                      class="raised button-submit"
+                      id="btn-start-qc"
                       style="
-                        display: inline-block;
-                        width: 12px;
-                        height: 12px;
-                        border: 2px solid rgba(56, 189, 248, 0.3);
-                        border-top-color: #38bdf8;
-                        border-radius: 50%;
-                        animation: qc-spin 0.8s linear infinite;
+                        background: #2563eb;
+                        border-radius: 8px;
+                        font-weight: 500;
+                        margin: 0;
+                        padding: 0.7em 1.4em;
                       "
-                    ></span>
-                    <span>Waiting for administrator authorization...</span>
+                    >
+                      <span>Start Quick Connect Pairing</span>
+                    </button>
+                    <button
+                      is="emby-button"
+                      type="button"
+                      class="raised"
+                      id="btn-auto-authorize-qc"
+                      style="
+                        display: none;
+                        border-radius: 8px;
+                        background: #16a34a;
+                        font-weight: 500;
+                        margin: 0;
+                        padding: 0.7em 1.4em;
+                      "
+                    >
+                      <span>Authorize Instantly</span>
+                    </button>
+                    <button
+                      is="emby-button"
+                      type="button"
+                      class="raised"
+                      id="btn-open-qc-page"
+                      style="
+                        display: none;
+                        border-radius: 8px;
+                        background: #2563eb;
+                        font-weight: 500;
+                        margin: 0;
+                        padding: 0.7em 1.4em;
+                      "
+                    >
+                      <span>Authorize in New Window</span>
+                    </button>
+                    <button
+                      is="emby-button"
+                      type="button"
+                      class="raised"
+                      id="btn-cancel-qc"
+                      style="
+                        display: none;
+                        border-radius: 8px;
+                        background: #27272a;
+                        border: 1px solid #3f3f46;
+                        margin: 0;
+                        padding: 0.7em 1.4em;
+                      "
+                    >
+                      <span>Cancel</span>
+                    </button>
                   </div>
                 </div>
+              </div>
 
+              <!-- TAB 2: Admin Credentials Login -->
+              <div
+                id="tab-pane-login"
+                class="seerr-tab-pane"
+                style="display: none"
+              >
                 <div
                   style="
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    flex-wrap: wrap;
+                    background: rgba(255, 255, 255, 0.02);
+                    border: 1px solid #27272a;
+                    border-radius: 10px;
+                    padding: 1.5em;
+                    margin-bottom: 1.2em;
                   "
                 >
+                  <div
+                    style="
+                      font-weight: 600;
+                      color: #f4f4f5;
+                      margin-bottom: 0.4em;
+                      font-size: 1em;
+                    "
+                  >
+                    Automatic API Key Retrieval
+                  </div>
+                  <p
+                    style="
+                      margin: 0 0 1.2em 0;
+                      color: #a1a1aa;
+                      font-size: 0.9em;
+                      line-height: 1.5;
+                    "
+                  >
+                    Enter your Seerr administrator credentials. Litefin
+                    authenticates once to automatically retrieve and store your
+                    API key. Credentials are never saved.
+                  </p>
+
+                  <div class="inputContainer" style="margin-bottom: 1em">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="txt-seerr-user"
+                      style="font-weight: 500; color: #e4e4e7"
+                      >Seerr Admin Username or Email</label
+                    >
+                    <input
+                      is="emby-input"
+                      type="text"
+                      id="txt-seerr-user"
+                      autocomplete="username"
+                      style="border-radius: 8px"
+                    />
+                  </div>
+                  <div class="inputContainer" style="margin-bottom: 1.2em">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="txt-seerr-password"
+                      style="font-weight: 500; color: #e4e4e7"
+                      >Seerr Admin Password</label
+                    >
+                    <input
+                      is="emby-input"
+                      type="password"
+                      id="txt-seerr-password"
+                      autocomplete="current-password"
+                      style="border-radius: 8px"
+                    />
+                    <div class="fieldDescription" style="color: #71717a">
+                      Leave empty if your account has no password set.
+                    </div>
+                  </div>
+
                   <button
                     is="emby-button"
                     type="button"
                     class="raised button-submit"
-                    id="btn-start-qc"
+                    id="btn-login-seerr"
                     style="
                       background: #2563eb;
                       border-radius: 8px;
@@ -461,224 +613,86 @@
                       padding: 0.7em 1.4em;
                     "
                   >
-                    <span>Start Quick Connect Pairing</span>
+                    <span>Authorize &amp; Fetch API Key</span>
                   </button>
-                  <button
-                    is="emby-button"
-                    type="button"
-                    class="raised"
-                    id="btn-auto-authorize-qc"
+                </div>
+              </div>
+
+              <!-- TAB 3: Manual API Key -->
+              <div
+                id="tab-pane-manual"
+                class="seerr-tab-pane"
+                style="display: none"
+              >
+                <div
+                  style="
+                    background: rgba(255, 255, 255, 0.02);
+                    border: 1px solid #27272a;
+                    border-radius: 10px;
+                    padding: 1.5em;
+                    margin-bottom: 1.2em;
+                  "
+                >
+                  <div
                     style="
-                      display: none;
-                      border-radius: 8px;
-                      background: #16a34a;
-                      font-weight: 500;
-                      margin: 0;
-                      padding: 0.7em 1.4em;
+                      font-weight: 600;
+                      color: #f4f4f5;
+                      margin-bottom: 0.4em;
+                      font-size: 1em;
                     "
                   >
-                    <span>Authorize Instantly</span>
-                  </button>
+                    Manual Key Entry
+                  </div>
+                  <p
+                    style="
+                      margin: 0 0 1.2em 0;
+                      color: #a1a1aa;
+                      font-size: 0.9em;
+                      line-height: 1.5;
+                    "
+                  >
+                    Paste the API key directly from your Seerr dashboard
+                    (Settings &rarr; General &rarr; API Key).
+                  </p>
+
+                  <div class="inputContainer" style="margin-bottom: 1.2em">
+                    <label
+                      class="inputLabel inputLabelUnfocused"
+                      for="txt-seerr-api-key"
+                      style="font-weight: 500; color: #e4e4e7"
+                      >Seerr API Key</label
+                    >
+                    <input
+                      is="emby-input"
+                      type="password"
+                      id="txt-seerr-api-key"
+                      autocomplete="new-password"
+                      style="border-radius: 8px"
+                    />
+                    <div class="fieldDescription" style="color: #71717a">
+                      Stored securely in the plugin configuration.
+                    </div>
+                  </div>
+
                   <button
                     is="emby-button"
                     type="button"
-                    class="raised"
-                    id="btn-open-qc-page"
+                    class="raised button-submit"
+                    id="btn-save-seerr"
                     style="
-                      display: none;
-                      border-radius: 8px;
                       background: #2563eb;
+                      border-radius: 8px;
                       font-weight: 500;
                       margin: 0;
                       padding: 0.7em 1.4em;
                     "
                   >
-                    <span>Authorize in New Window</span>
-                  </button>
-                  <button
-                    is="emby-button"
-                    type="button"
-                    class="raised"
-                    id="btn-cancel-qc"
-                    style="
-                      display: none;
-                      border-radius: 8px;
-                      background: #27272a;
-                      border: 1px solid #3f3f46;
-                      margin: 0;
-                      padding: 0.7em 1.4em;
-                    "
-                  >
-                    <span>Cancel</span>
+                    <span>Save API Key Manually</span>
                   </button>
                 </div>
               </div>
             </div>
-
-            <!-- TAB 2: Admin Credentials Login -->
-            <div
-              id="tab-pane-login"
-              class="seerr-tab-pane"
-              style="display: none"
-            >
-              <div
-                style="
-                  background: rgba(255, 255, 255, 0.02);
-                  border: 1px solid #27272a;
-                  border-radius: 10px;
-                  padding: 1.5em;
-                  margin-bottom: 1.2em;
-                "
-              >
-                <div
-                  style="
-                    font-weight: 600;
-                    color: #f4f4f5;
-                    margin-bottom: 0.4em;
-                    font-size: 1em;
-                  "
-                >
-                  Automatic API Key Retrieval
-                </div>
-                <p
-                  style="
-                    margin: 0 0 1.2em 0;
-                    color: #a1a1aa;
-                    font-size: 0.9em;
-                    line-height: 1.5;
-                  "
-                >
-                  Enter your Seerr administrator credentials. Litefin
-                  authenticates once to automatically retrieve and store your
-                  API key. Credentials are never saved.
-                </p>
-
-                <div class="inputContainer" style="margin-bottom: 1em">
-                  <label
-                    class="inputLabel inputLabelUnfocused"
-                    for="txt-seerr-user"
-                    style="font-weight: 500; color: #e4e4e7"
-                    >Seerr Admin Username or Email</label
-                  >
-                  <input
-                    is="emby-input"
-                    type="text"
-                    id="txt-seerr-user"
-                    autocomplete="username"
-                    style="border-radius: 8px"
-                  />
-                </div>
-                <div class="inputContainer" style="margin-bottom: 1.2em">
-                  <label
-                    class="inputLabel inputLabelUnfocused"
-                    for="txt-seerr-password"
-                    style="font-weight: 500; color: #e4e4e7"
-                    >Seerr Admin Password</label
-                  >
-                  <input
-                    is="emby-input"
-                    type="password"
-                    id="txt-seerr-password"
-                    autocomplete="current-password"
-                    style="border-radius: 8px"
-                  />
-                  <div class="fieldDescription" style="color: #71717a">
-                    Leave empty if your account has no password set.
-                  </div>
-                </div>
-
-                <button
-                  is="emby-button"
-                  type="button"
-                  class="raised button-submit"
-                  id="btn-login-seerr"
-                  style="
-                    background: #2563eb;
-                    border-radius: 8px;
-                    font-weight: 500;
-                    margin: 0;
-                    padding: 0.7em 1.4em;
-                  "
-                >
-                  <span>Authorize &amp; Fetch API Key</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- TAB 3: Manual API Key -->
-            <div
-              id="tab-pane-manual"
-              class="seerr-tab-pane"
-              style="display: none"
-            >
-              <div
-                style="
-                  background: rgba(255, 255, 255, 0.02);
-                  border: 1px solid #27272a;
-                  border-radius: 10px;
-                  padding: 1.5em;
-                  margin-bottom: 1.2em;
-                "
-              >
-                <div
-                  style="
-                    font-weight: 600;
-                    color: #f4f4f5;
-                    margin-bottom: 0.4em;
-                    font-size: 1em;
-                  "
-                >
-                  Manual Key Entry
-                </div>
-                <p
-                  style="
-                    margin: 0 0 1.2em 0;
-                    color: #a1a1aa;
-                    font-size: 0.9em;
-                    line-height: 1.5;
-                  "
-                >
-                  Paste the API key directly from your Seerr dashboard (Settings
-                  &rarr; General &rarr; API Key).
-                </p>
-
-                <div class="inputContainer" style="margin-bottom: 1.2em">
-                  <label
-                    class="inputLabel inputLabelUnfocused"
-                    for="txt-seerr-api-key"
-                    style="font-weight: 500; color: #e4e4e7"
-                    >Seerr API Key</label
-                  >
-                  <input
-                    is="emby-input"
-                    type="password"
-                    id="txt-seerr-api-key"
-                    autocomplete="new-password"
-                    style="border-radius: 8px"
-                  />
-                  <div class="fieldDescription" style="color: #71717a">
-                    Stored securely in the plugin configuration.
-                  </div>
-                </div>
-
-                <button
-                  is="emby-button"
-                  type="button"
-                  class="raised button-submit"
-                  id="btn-save-seerr"
-                  style="
-                    background: #2563eb;
-                    border-radius: 8px;
-                    font-weight: 500;
-                    margin: 0;
-                    padding: 0.7em 1.4em;
-                  "
-                >
-                  <span>Save API Key Manually</span>
-                </button>
-              </div>
-            </div>
-            </div> <!-- Close #seerr-connection-methods -->
+            <!-- Close #seerr-connection-methods -->
 
             <!-- Status & Test Bar -->
             <div
@@ -1222,7 +1236,9 @@
         function checkSeerrUrlChanged() {
           // Retrieve and normalize the current input value
           var urlInput = document.querySelector("#txt-seerr-url");
-          var currentUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+          var currentUrl = urlInput
+            ? urlInput.value.trim().replace(/\/+$/, "")
+            : "";
           var warningEl = document.querySelector("#seerr-url-unsaved-warning");
 
           // Safely bail if element is not rendered
@@ -1246,8 +1262,12 @@
          * @param {boolean} hasKey - True if an API key is configured.
          */
         function updateSeerrKeyVisibility(hasKey) {
-          var methodsContainer = document.querySelector("#seerr-connection-methods");
-          var configuredCard = document.querySelector("#seerr-key-configured-card");
+          var methodsContainer = document.querySelector(
+            "#seerr-connection-methods",
+          );
+          var configuredCard = document.querySelector(
+            "#seerr-key-configured-card",
+          );
 
           if (!methodsContainer || !configuredCard) {
             return;
@@ -1269,7 +1289,11 @@
          * and re-displays the 3 connection methods so the user can re-authenticate.
          */
         function resetSeerrKey() {
-          if (!confirm("Are you sure you want to reset the Seerr API key? You will need to reconnect.")) {
+          if (
+            !confirm(
+              "Are you sure you want to reset the Seerr API key? You will need to reconnect.",
+            )
+          ) {
             return;
           }
 
@@ -1297,7 +1321,10 @@
               updateSeerrKeyVisibility(false);
 
               // Update status display with clear feedback
-              setSeerrStatus("API key reset. Please select a connection method below to re-authenticate.", null);
+              setSeerrStatus(
+                "API key reset. Please select a connection method below to re-authenticate.",
+                null,
+              );
               Dashboard.hideLoadingMsg();
             })
             .catch(function (err) {
@@ -1315,15 +1342,16 @@
           ApiClient.getPluginConfiguration(LitefinConfig.pluginUniqueId).then(
             function (config) {
               // Cache normalized saved URL value for comparison
-              savedSeerrUrl = (config.SeerrUrl || "").trim().replace(/\/+$/, "");
+              savedSeerrUrl = (config.SeerrUrl || "")
+                .trim()
+                .replace(/\/+$/, "");
 
               var apiKey = (config.SeerrApiKey || "").trim();
 
               // Populate input fields
               document.querySelector("#txt-seerr-url").value =
                 config.SeerrUrl || "";
-              document.querySelector("#txt-seerr-api-key").value =
-                apiKey;
+              document.querySelector("#txt-seerr-api-key").value = apiKey;
 
               // Refresh warning state based on loaded configuration
               checkSeerrUrlChanged();
@@ -1359,7 +1387,9 @@
         function saveSeerrUrl() {
           // Extract and sanitize the current URL input value
           var urlInput = document.querySelector("#txt-seerr-url");
-          var seerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+          var seerrUrl = urlInput
+            ? urlInput.value.trim().replace(/\/+$/, "")
+            : "";
 
           // Ensure input is not empty before updating configuration
           if (!seerrUrl) {
@@ -1412,11 +1442,15 @@
             .then(function () {
               // Update local saved URL reference on successful manual save
               var urlInput = document.querySelector("#txt-seerr-url");
-              savedSeerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+              savedSeerrUrl = urlInput
+                ? urlInput.value.trim().replace(/\/+$/, "")
+                : "";
               checkSeerrUrlChanged();
 
               // Update visibility based on newly saved API key
-              var apiKey = (document.querySelector("#txt-seerr-api-key").value || "").trim();
+              var apiKey = (
+                document.querySelector("#txt-seerr-api-key").value || ""
+              ).trim();
               updateSeerrKeyVisibility(apiKey.length > 0);
 
               setSeerrStatus("API key saved manually.", true);
@@ -1435,7 +1469,9 @@
         function testSeerrServer() {
           // Read and normalize target Seerr URL
           var urlInput = document.querySelector("#txt-seerr-url");
-          var seerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+          var seerrUrl = urlInput
+            ? urlInput.value.trim().replace(/\/+$/, "")
+            : "";
 
           // Ensure a target URL has been provided by the user
           if (!seerrUrl) {
@@ -1489,7 +1525,9 @@
         function testSeerrConnection() {
           var urlInput = document.querySelector("#txt-seerr-url");
           var keyInput = document.querySelector("#txt-seerr-api-key");
-          var seerrUrl = urlInput ? urlInput.value.trim().replace(/\/+$/, "") : "";
+          var seerrUrl = urlInput
+            ? urlInput.value.trim().replace(/\/+$/, "")
+            : "";
           var apiKey = keyInput ? keyInput.value.trim() : "";
 
           // Ensure a target URL has been provided by the user
@@ -1712,7 +1750,8 @@
             }
 
             // Test Server reachability button directly next to the URL input field
-            document.querySelector("#btn-test-seerr-server").onclick = testSeerrServer;
+            document.querySelector("#btn-test-seerr-server").onclick =
+              testSeerrServer;
             // Reset API key button to re-expose connection methods
             var resetKeyBtn = document.querySelector("#btn-reset-seerr-key");
             if (resetKeyBtn) {
@@ -1720,7 +1759,8 @@
             }
 
             // Save URL action button directly next to the URL input field
-            document.querySelector("#btn-save-seerr-url").onclick = saveSeerrUrl;
+            document.querySelector("#btn-save-seerr-url").onclick =
+              saveSeerrUrl;
             document.querySelector("#btn-start-qc").onclick = startQuickConnect;
             document.querySelector("#btn-open-qc-page").onclick =
               openQuickConnectWindow;
