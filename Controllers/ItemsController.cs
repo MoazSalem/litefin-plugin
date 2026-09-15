@@ -407,13 +407,13 @@ public class ItemsController : ControllerBase
                             continue;
                         }
 
-                        // Try LinkedChildren first (works for BoxSets)
+                        // Try LinkedChildren first (works for BoxSets).
+                        // Jellyfin 12 deprecated LinkedChild.LibraryItemId in favour of ItemId,
+                        // so we only check ItemId here — any entry without it is simply skipped.
                         var linkedValid = childFolder.LinkedChildren
                             .Select(lc => lc.ItemId.HasValue
                                 ? this.libraryManager.GetItemById(lc.ItemId.Value)
-                                : (!string.IsNullOrEmpty(lc.LibraryItemId) && Guid.TryParse(lc.LibraryItemId, out var libGuid)
-                                    ? this.libraryManager.GetItemById(libGuid)
-                                    : null))
+                                : null)
                             .Where(child => child != null)
                             .Cast<BaseItem>()
                             .ToList();

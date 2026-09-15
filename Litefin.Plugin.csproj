@@ -1,27 +1,35 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- Jellyfin 12 runs on .NET 10; plugin must match the host runtime -->
+    <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>Litefin.Plugin</RootNamespace>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Nullable>enable</Nullable>
     <AnalysisMode>AllEnabledByDefault</AnalysisMode>
-    <NoWarn>$(NoWarn);NU1603</NoWarn>
+    <!-- CA1873: 'Avoid potentially expensive call in logger messages' fires on value-type args
+         (Guid, int, etc.) that get boxed. Not worth converting every log site to LoggerMessage
+         source-gen delegates in a plugin; suppress project-wide. -->
+    <NoWarn>$(NoWarn);NU1603;CA1873</NoWarn>
     <Version>1.6.1.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.0" >
+    <!-- Targeting Jellyfin 12.x; this is the minimum version that includes the
+         GetBaseItemDtos(items, options, user, owner, skipVisibilityCheck) overload.
+         If you need 10.x compat, you'd need two separate build targets - the
+         interface change is binary-breaking and cannot be papered over in one DLL. -->
+    <PackageReference Include="Jellyfin.Controller" Version="12.1.0" >
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Model" Version="10.11.0">
+    <PackageReference Include="Jellyfin.Model" Version="12.1.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Data" Version="10.11.0">
+    <PackageReference Include="Jellyfin.Data" Version="12.1.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="10.11.0">
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.1.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>

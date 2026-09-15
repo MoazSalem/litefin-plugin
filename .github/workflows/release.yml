@@ -30,7 +30,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Update Litefin.Plugin.csproj Version
         run: |
@@ -57,7 +57,7 @@ jobs:
           ZIP_NAME="Litefin.Plugin_${VERSION}.zip"
           
           # Compress built release files
-          cd bin/Release/net9.0
+          cd bin/Release/net10.0
           zip -r "../../../${ZIP_NAME}" *
           cd ../../..
           
