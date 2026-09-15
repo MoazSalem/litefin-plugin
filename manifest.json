@@ -2,7 +2,7 @@
   {
     "guid": "f5c68360-ca47-4648-b47c-3da5f112aa8f",
     "name": "Litefin",
-    "description": "Litefin client helper plugin, currently it helps backup and restore Litefin app settings directly to/from your Jellyfin server.",
+    "description": "Litefin plugin adds Seerr, optimizations, and backup and restore functionality to the Litefin Client.",
     "overview": "Synchronizes client settings, layout choices, and color themes.",
     "owner": "MoazSalem",
     "category": "General",
