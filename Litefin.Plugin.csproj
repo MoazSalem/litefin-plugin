@@ -20,16 +20,16 @@
          GetBaseItemDtos(items, options, user, owner, skipVisibilityCheck) overload.
          If you need 10.x compat, you'd need two separate build targets - the
          interface change is binary-breaking and cannot be papered over in one DLL. -->
-    <PackageReference Include="Jellyfin.Controller" Version="12.1.0" >
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Model" Version="12.1.0">
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Data" Version="12.1.0">
+    <PackageReference Include="Jellyfin.Data" Version="12.0.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
-    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.1.0">
+    <PackageReference Include="Jellyfin.Database.Implementations" Version="12.0.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
   </ItemGroup>
