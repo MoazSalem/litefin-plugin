@@ -12,7 +12,7 @@
          (Guid, int, etc.) that get boxed. Not worth converting every log site to LoggerMessage
          source-gen delegates in a plugin; suppress project-wide. -->
     <NoWarn>$(NoWarn);NU1603;CA1873</NoWarn>
-    <Version>1.12.0.1</Version>
+    <Version>1.12.0.2</Version>
   </PropertyGroup>
 
   <ItemGroup>
