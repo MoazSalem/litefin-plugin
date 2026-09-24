@@ -1054,24 +1054,44 @@ public class SeerrController : ControllerBase
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        // --------------------------------------------------------------------
+        // Validate Media Type and Season Selection:
+        // --------------------------------------------------------------------
         var isTv = request.MediaType.Equals("tv", StringComparison.OrdinalIgnoreCase);
         if (!request.MediaType.Equals("movie", StringComparison.OrdinalIgnoreCase) && !isTv)
         {
+            this.logger.LogWarning("CreateRequest rejected: MediaType '{MediaType}' is invalid (must be 'movie' or 'tv').", request.MediaType);
             return this.BadRequest(new { message = "MediaType must be movie or tv." });
         }
 
         var seasons = request.Seasons?.Where(season => season > 0).Distinct().ToArray();
         if (isTv && (seasons == null || seasons.Length == 0))
         {
+            this.logger.LogWarning("CreateRequest rejected: Television request for media ID {MediaId} did not specify any seasons.", request.MediaId);
             return this.BadRequest(new { message = "At least one season is required for a television request." });
         }
 
+        // --------------------------------------------------------------------
+        // Authenticate Requesting Jellyfin User Context:
+        // --------------------------------------------------------------------
         var jellyfinUserId = this.GetAuthenticatedUserId();
         if (jellyfinUserId == null)
         {
+            this.logger.LogWarning("CreateRequest rejected: Authenticated Jellyfin user context is missing.");
             return this.Unauthorized(new { message = "Authenticated Jellyfin user context is missing." });
         }
 
+        this.logger.LogInformation(
+            "Initiating Seerr request: JellyfinUser={JellyfinUserId}, MediaType={MediaType}, MediaId={MediaId}, IsTv={IsTv}, RequestedUserId={RequestedUserId}",
+            jellyfinUserId,
+            request.MediaType,
+            request.MediaId,
+            isTv,
+            request.UserId);
+
+        // --------------------------------------------------------------------
+        // Resolve Corresponding Seerr User Account:
+        // --------------------------------------------------------------------
         int? seerrUserId;
         try
         {
@@ -1079,23 +1099,27 @@ public class SeerrController : ControllerBase
         }
         catch (HttpRequestException ex)
         {
-            this.logger.LogWarning(ex, "Unable to resolve the authenticated user in Seerr");
+            this.logger.LogWarning(ex, "Unable to resolve the authenticated user in Seerr (connection error).");
             return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to reach Seerr." });
         }
         catch (TaskCanceledException ex)
         {
-            this.logger.LogWarning(ex, "Timed out while resolving the authenticated user in Seerr");
+            this.logger.LogWarning(ex, "Timed out while resolving the authenticated user in Seerr.");
             return this.StatusCode(StatusCodes.Status504GatewayTimeout, new { message = "The Seerr request timed out." });
         }
 
         if (!seerrUserId.HasValue)
         {
+            this.logger.LogWarning("CreateRequest rejected: Jellyfin user {JellyfinUserId} is not linked to an account in Seerr.", jellyfinUserId);
             return this.StatusCode(StatusCodes.Status403Forbidden, new
             {
                 message = "The authenticated Jellyfin user is not linked to a Seerr account.",
             });
         }
 
+        // --------------------------------------------------------------------
+        // Assemble Outgoing Seerr Request Payload:
+        // --------------------------------------------------------------------
         var payload = new Dictionary<string, object>
         {
             ["mediaType"] = isTv ? "tv" : "movie",
@@ -1108,6 +1132,7 @@ public class SeerrController : ControllerBase
             payload["serverId"] = request.ServerId.Value;
         }
 
+        // Validate permissions for advanced server/profile overrides (permission bit 8192 or admin bit 2)
         var usesAdvancedOptions = request.ServerId.HasValue
             || request.ProfileId.HasValue
             || !string.IsNullOrWhiteSpace(request.RootFolder)
@@ -1115,6 +1140,7 @@ public class SeerrController : ControllerBase
         if (usesAdvancedOptions
             && !await this.HasSeerrPermissionAsync(seerrUserId.Value, 8192, cancellationToken).ConfigureAwait(false))
         {
+            this.logger.LogWarning("CreateRequest rejected: Seerr user {SeerrUserId} lacks advanced request permissions (8192).", seerrUserId);
             return this.StatusCode(StatusCodes.Status403Forbidden, new { message = "Advanced request permission is required." });
         }
 
@@ -1133,7 +1159,9 @@ public class SeerrController : ControllerBase
             payload["languageProfileId"] = request.LanguageProfileId.Value;
         }
 
-        if (request.UserId.HasValue)
+        // Only send explicit target userId if requesting on behalf of someone else
+        // When requesting for oneself, Seerr prefers X-Api-User to prevent unauthorized delegation checks
+        if (request.UserId.HasValue && request.UserId.Value != seerrUserId.Value)
         {
             payload["userId"] = request.UserId.Value;
         }
@@ -1142,6 +1170,12 @@ public class SeerrController : ControllerBase
         {
             payload["seasons"] = seasons!;
         }
+
+        this.logger.LogInformation(
+            "Forwarding request to Seerr for media {MediaId} (Seerr user {SeerrUserId}, 4K={Is4K})",
+            request.MediaId,
+            seerrUserId,
+            request.Is4K);
 
         return await this.ProxyAsync(HttpMethod.Post, "/request", payload, cancellationToken, seerrUserId).ConfigureAwait(false);
     }
@@ -1759,20 +1793,53 @@ public class SeerrController : ControllerBase
                 return null;
             }
 
+            var currentUsername = this.User.Identity?.Name;
+
             foreach (var user in users.EnumerateArray())
             {
-                if (!user.TryGetProperty("jellyfinUserId", out var jellyfinIdProperty)
-                    || !user.TryGetProperty("id", out var idProperty))
+                if (!user.TryGetProperty("id", out var idProperty) || !idProperty.TryGetInt32(out var seerrUserId))
                 {
                     continue;
                 }
 
-                var candidate = jellyfinIdProperty.GetString()?.Replace("-", string.Empty, StringComparison.Ordinal);
-                if (candidate != null
-                    && candidate.Equals(normalizedUserId, StringComparison.OrdinalIgnoreCase)
-                    && idProperty.TryGetInt32(out var seerrUserId))
+                // ------------------------------------------------------------
+                // 1. Primary Match: jellyfinUserId GUID
+                // ------------------------------------------------------------
+                if (user.TryGetProperty("jellyfinUserId", out var jellyfinIdProperty))
                 {
-                    return seerrUserId;
+                    var candidate = jellyfinIdProperty.GetString()?.Replace("-", string.Empty, StringComparison.Ordinal);
+                    if (candidate != null
+                        && candidate.Equals(normalizedUserId, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return seerrUserId;
+                    }
+                }
+
+                // ------------------------------------------------------------
+                // 2. Secondary Match: username fallback
+                // Used when accounts were imported or created without GUID linking
+                // ------------------------------------------------------------
+                if (!string.IsNullOrWhiteSpace(currentUsername))
+                {
+                    if (user.TryGetProperty("jellyfinUsername", out var jfUserProp))
+                    {
+                        var jfUser = jfUserProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(jfUser) && jfUser.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                        {
+                            this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via jellyfinUsername match '{Username}'", seerrUserId, currentUsername);
+                            return seerrUserId;
+                        }
+                    }
+
+                    if (user.TryGetProperty("username", out var userProp))
+                    {
+                        var uName = userProp.GetString();
+                        if (!string.IsNullOrWhiteSpace(uName) && uName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                        {
+                            this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via username match '{Username}'", seerrUserId, currentUsername);
+                            return seerrUserId;
+                        }
+                    }
                 }
             }
 
