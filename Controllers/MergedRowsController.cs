@@ -136,7 +136,10 @@ public class MergedRowsController : ControllerBase
             ImageTypeLimit = 1,
         };
 
-        // Fetch resume items (Continue Watching list) sorted by play date order
+        // Fetch resume items (Continue Watching list) sorted by play date order.
+        // Explicitly restrict to playable video items (Movies, Episodes, Videos) and non-folders.
+        // In Jellyfin 12+, IsResumable rollup treats Season and Series folders as resumable
+        // when child episodes have progress; restricting types and flags prevents container folders from leaking.
         this.logger.LogDebug("Querying resume items from LibraryManager.");
         var resumeItemsResult = this.libraryManager.GetItemsResult(new InternalItemsQuery(user)
         {
@@ -148,6 +151,9 @@ public class MergedRowsController : ControllerBase
             DtoOptions = dtoOptions,
             IsVirtualItem = false,
             CollapseBoxSetItems = false,
+            IsFolder = false,
+            MediaTypes = [MediaType.Video],
+            IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Episode, BaseItemKind.Video],
         });
 
         // Query the next up series episodes (Next Up list) using series manager
@@ -170,7 +176,8 @@ public class MergedRowsController : ControllerBase
         {
             foreach (var item in resumeItemsResult.Items)
             {
-                if (item == null)
+                // Defensive guard: Discard null entries, folder containers, or unexpected Season/Series objects
+                if (item == null || item.IsFolder || item is MediaBrowser.Controller.Entities.TV.Season || item is MediaBrowser.Controller.Entities.TV.Series)
                 {
                     continue;
                 }
@@ -186,7 +193,8 @@ public class MergedRowsController : ControllerBase
         {
             foreach (var item in nextUpResult.Items)
             {
-                if (item == null)
+                // Defensive guard: Ensure item is a valid playable leaf entity
+                if (item == null || item.IsFolder || item is MediaBrowser.Controller.Entities.TV.Season || item is MediaBrowser.Controller.Entities.TV.Series)
                 {
                     continue;
                 }
