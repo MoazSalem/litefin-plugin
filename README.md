@@ -2,6 +2,8 @@
 
 A lightweight Jellyfin Server companion extension for the Litefin client. It exposes dedicated server-side APIs, state persistence, and management tools to store and sync your app settings securely.
 
+If you use Emby instead of Jellyfin for a server, you should [use this instead](https://github.com/MoazSalem/litefin-plugin-emby).
+
 ---
 
 ## Features
