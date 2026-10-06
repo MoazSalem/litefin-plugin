@@ -73,6 +73,7 @@ public class MergedRowsController : ControllerBase
     /// <param name="userId">Optional. The user id to get the merged list for.</param>
     /// <param name="limit">Optional. The maximum number of records to return for each query.</param>
     /// <param name="fields">Optional. Specify additional fields of information to return in the output.</param>
+    /// <param name="nextUpDateCutoff">Optional. Starting cutoff date of shows to show in Next Up section.</param>
     /// <response code="200">Returns the merged list of base item DTOs.</response>
     /// <response code="404">If the user is not found on the server.</response>
     /// <returns>A merged query result list of BaseItemDto.</returns>
@@ -82,7 +83,8 @@ public class MergedRowsController : ControllerBase
     public ActionResult<QueryResult<BaseItemDto>> GetContinueAndNextUp(
         [FromQuery] Guid? userId,
         [FromQuery] int? limit,
-        [FromQuery] string? fields)
+        [FromQuery] string? fields,
+        [FromQuery] DateTime? nextUpDateCutoff)
     {
         // Log query details for debugging performance
         this.logger.LogInformation("Processing GetContinueAndNextUp API request for user: {UserId}", userId);
@@ -156,17 +158,20 @@ public class MergedRowsController : ControllerBase
             IncludeItemTypes = [BaseItemKind.Movie, BaseItemKind.Episode, BaseItemKind.Video],
         });
 
-        // Query the next up series episodes (Next Up list) using series manager
+        // Query the next up series episodes (Next Up list) using series manager.
+        // If a date cutoff limit is supplied by the client, pass it along so that
+        // stale shows exceeding the user's max days configuration are omitted.
         this.logger.LogDebug("Querying NextUp items from TVSeriesManager.");
-        var nextUpResult = this.tvSeriesManager.GetNextUp(
-            new NextUpQuery
-            {
-                User = user,
-                Limit = rowLimit,
-                EnableResumable = true,
-                EnableRewatching = false,
-            },
-            dtoOptions);
+        var nextUpQuery = new NextUpQuery
+        {
+            User = user,
+            Limit = rowLimit,
+            EnableResumable = true,
+            EnableRewatching = false,
+            NextUpDateCutoff = nextUpDateCutoff ?? DateTime.MinValue,
+        };
+
+        var nextUpResult = this.tvSeriesManager.GetNextUp(nextUpQuery, dtoOptions);
 
         // Combine both lists, deduplicating elements by their unique base item ID and sorting chronologically
         var itemsWithActivity = new List<(BaseItem Item, DateTime ActivityDate)>();
@@ -232,6 +237,12 @@ public class MergedRowsController : ControllerBase
                 {
                     var userData = this.userDataManager.GetUserData(user, item);
                     activityDate = userData?.LastPlayedDate ?? item.DateCreated;
+                }
+
+                // Discard next-up items whose series activity is older than the configured cutoff limit
+                if (nextUpDateCutoff.HasValue && activityDate.HasValue && activityDate.Value < nextUpDateCutoff.Value)
+                {
+                    continue;
                 }
 
                 itemsWithActivity.Add((item, activityDate.Value));
