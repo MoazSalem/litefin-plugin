@@ -230,8 +230,12 @@ public class ItemsController : ControllerBase
 
                     if (children != null && children.Count > 0)
                     {
+                        // Default to the first child item (e.g. single recently added Episode)
                         item = children[0];
-                        if (tuple.Item1 is not null && (children.Count > 1 || tuple.Item1 is MusicAlbum || tuple.Item1 is Series))
+
+                        // For music albums or multi-episode additions spanning a container,
+                        // surface the parent container item instead of an arbitrary individual track/episode.
+                        if (tuple.Item1 is not null && (children.Count > 1 || tuple.Item1 is MusicAlbum))
                         {
                             item = tuple.Item1;
                             childCount = children.Count;
@@ -257,13 +261,13 @@ public class ItemsController : ControllerBase
                 {
                     var dto = dtos[i];
 
-                    // Strip unneeded metadata fields to produce a minimal home card DTO
+                    // Strip unneeded metadata fields to produce a minimal home card DTO.
+                    // Note: EndDate and Status are preserved so the client can display
+                    // continuing series ("2026 - Present") and finished series date ranges accurately.
                     dto.PremiereDate = null;
-                    dto.EndDate = null;
                     dto.OfficialRating = null;
                     dto.CommunityRating = null;
                     dto.ChannelId = null;
-                    dto.Status = null;
                     dto.AirDays = null;
                     dto.ChildCount = null;
                     dto.Overview = null;
