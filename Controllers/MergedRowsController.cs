@@ -212,22 +212,26 @@ public class MergedRowsController : ControllerBase
 
                 DateTime? activityDate = null;
 
-                // For next-up episodes, determine when the parent series was last active by querying its last played episode
+                // For next-up episodes, rank the series the way Jellyfin's own Next Up does:
+                // by when the furthest-watched (highest season/episode) episode was played.
+                // Rewatching or marking an earlier episode therefore does not move the series up.
                 if (item is MediaBrowser.Controller.Entities.TV.Episode episode && episode.SeriesId != Guid.Empty)
                 {
-                    var lastPlayedEpisodes = this.libraryManager.GetItemList(new InternalItemsQuery(user)
+                    var lastWatchedEpisodes = this.libraryManager.GetItemList(new InternalItemsQuery(user)
                     {
                         AncestorIds = [episode.SeriesId],
                         IncludeItemTypes = [BaseItemKind.Episode],
-                        OrderBy = [(ItemSortBy.DatePlayed, SortOrder.Descending)],
+                        IsPlayed = true,
+                        IsVirtualItem = false,
+                        OrderBy = [(ItemSortBy.ParentIndexNumber, SortOrder.Descending), (ItemSortBy.IndexNumber, SortOrder.Descending)],
                         Limit = 1,
                         Recursive = true,
                     });
 
-                    if (lastPlayedEpisodes.Count > 0)
+                    // Specials (season 0) sort last, so a special here means no regular episode was played
+                    if (lastWatchedEpisodes.Count > 0 && lastWatchedEpisodes[0].ParentIndexNumber != 0)
                     {
-                        var lastPlayedEpisode = lastPlayedEpisodes[0];
-                        var epUserData = this.userDataManager.GetUserData(user, lastPlayedEpisode);
+                        var epUserData = this.userDataManager.GetUserData(user, lastWatchedEpisodes[0]);
                         activityDate = epUserData?.LastPlayedDate;
                     }
                 }
