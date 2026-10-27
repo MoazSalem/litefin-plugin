@@ -12,6 +12,7 @@ using System.Linq;
 using System.Net.Mime;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -39,6 +40,7 @@ public class MergedRowsController : ControllerBase
     private readonly ITVSeriesManager tvSeriesManager;
     private readonly IDtoService dtoService;
     private readonly IUserDataManager userDataManager;
+    private readonly IServerConfigurationManager? serverConfigurationManager;
     private readonly ILogger<MergedRowsController> logger;
 
     /// <summary>
@@ -50,13 +52,15 @@ public class MergedRowsController : ControllerBase
     /// <param name="dtoService">Instance of the <see cref="IDtoService"/> interface.</param>
     /// <param name="userDataManager">Instance of the <see cref="IUserDataManager"/> interface.</param>
     /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
+    /// <param name="serverConfigurationManager">Optional instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     public MergedRowsController(
         IUserManager userManager,
         ILibraryManager libraryManager,
         ITVSeriesManager tvSeriesManager,
         IDtoService dtoService,
         IUserDataManager userDataManager,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        IServerConfigurationManager? serverConfigurationManager = null)
     {
         // Bind the injected service interfaces to local fields
         this.userManager = userManager;
@@ -65,6 +69,7 @@ public class MergedRowsController : ControllerBase
         this.dtoService = dtoService;
         this.userDataManager = userDataManager;
         this.logger = loggerFactory.CreateLogger<MergedRowsController>();
+        this.serverConfigurationManager = serverConfigurationManager;
     }
 
     /// <summary>
@@ -74,6 +79,7 @@ public class MergedRowsController : ControllerBase
     /// <param name="limit">Optional. The maximum number of records to return for each query.</param>
     /// <param name="fields">Optional. Specify additional fields of information to return in the output.</param>
     /// <param name="nextUpDateCutoff">Optional. Starting cutoff date of shows to show in Next Up section.</param>
+    /// <param name="watchedThreshold">Optional. Mark as watched completion threshold percentage (1-100). If omitted or invalid, the server's MaxResumePct is used.</param>
     /// <response code="200">Returns the merged list of base item DTOs.</response>
     /// <response code="404">If the user is not found on the server.</response>
     /// <returns>A merged query result list of BaseItemDto.</returns>
@@ -84,7 +90,8 @@ public class MergedRowsController : ControllerBase
         [FromQuery] Guid? userId,
         [FromQuery] int? limit,
         [FromQuery] string? fields,
-        [FromQuery] DateTime? nextUpDateCutoff)
+        [FromQuery] DateTime? nextUpDateCutoff,
+        [FromQuery] int? watchedThreshold)
     {
         // Log query details for debugging performance
         this.logger.LogInformation("Processing GetContinueAndNextUp API request for user: {UserId}", userId);
@@ -116,6 +123,14 @@ public class MergedRowsController : ControllerBase
 
         // Set default row limit size if none is requested by the client
         var rowLimit = limit ?? 12;
+
+        // Determine the completion threshold fraction used to decide if an item is considered finished/watched.
+        // Fall back to server's configured MaxResumePct if client did not supply an explicit percentage.
+        var defaultMaxResumePct = this.serverConfigurationManager?.Configuration.MaxResumePct ?? 90;
+        var thresholdPercentage = (watchedThreshold.HasValue && watchedThreshold.Value is >= 1 and <= 100)
+            ? watchedThreshold.Value
+            : (defaultMaxResumePct > 0 && defaultMaxResumePct <= 100 ? defaultMaxResumePct : 90);
+        var thresholdFraction = thresholdPercentage / 100.0;
 
         ItemFields[]? parsedFields = null;
         if (!string.IsNullOrWhiteSpace(fields))
@@ -159,14 +174,14 @@ public class MergedRowsController : ControllerBase
         });
 
         // Query the next up series episodes (Next Up list) using series manager.
-        // If a date cutoff limit is supplied by the client, pass it along so that
-        // stale shows exceeding the user's max days configuration are omitted.
+        // In Next Up, we set EnableResumable = false so episodes already in progress
+        // are handled strictly by the Continue Watching query and not duplicated or shown prematurely.
         this.logger.LogDebug("Querying NextUp items from TVSeriesManager.");
         var nextUpQuery = new NextUpQuery
         {
             User = user,
             Limit = rowLimit,
-            EnableResumable = true,
+            EnableResumable = false,
             EnableRewatching = false,
             NextUpDateCutoff = nextUpDateCutoff ?? DateTime.MinValue,
         };
@@ -187,8 +202,38 @@ public class MergedRowsController : ControllerBase
                     continue;
                 }
 
+                // Query the user playback state associated with this item
                 var userData = this.userDataManager.GetUserData(user, item);
-                var activityDate = userData?.LastPlayedDate ?? item.DateCreated;
+                if (userData == null)
+                {
+                    continue;
+                }
+
+                // Exclude items that are already marked as played/watched
+                if (userData.Played)
+                {
+                    continue;
+                }
+
+                // Exclude items where recorded playback position is zero or unstarted
+                var positionTicks = userData.PlaybackPositionTicks;
+                if (positionTicks <= 0)
+                {
+                    continue;
+                }
+
+                // Exclude items that have reached or passed the mark as watched threshold
+                var runtimeTicks = item.RunTimeTicks ?? 0;
+                if (runtimeTicks > 0)
+                {
+                    var progressFraction = (double)positionTicks / runtimeTicks;
+                    if (progressFraction >= thresholdFraction)
+                    {
+                        continue;
+                    }
+                }
+
+                var activityDate = userData.LastPlayedDate ?? item.DateCreated;
                 itemsWithActivity.Add((item, activityDate));
             }
         }
@@ -207,6 +252,33 @@ public class MergedRowsController : ControllerBase
                 // Avoid duplicate items if they are already present
                 if (itemsWithActivity.Any(x => x.Item.Id == item.Id))
                 {
+                    continue;
+                }
+
+                // Query user playback metadata for this next up episode
+                var userData = this.userDataManager.GetUserData(user, item);
+
+                // Exclude next-up items that are already marked played
+                if (userData?.Played == true)
+                {
+                    continue;
+                }
+
+                // Exclude next-up items that have resume progress or exceed watched threshold
+                var nextUpPositionTicks = userData?.PlaybackPositionTicks ?? 0;
+                var nextUpRuntimeTicks = item.RunTimeTicks ?? 0;
+                if (nextUpPositionTicks > 0)
+                {
+                    if (nextUpRuntimeTicks > 0)
+                    {
+                        var progressFraction = (double)nextUpPositionTicks / nextUpRuntimeTicks;
+                        if (progressFraction >= thresholdFraction)
+                        {
+                            continue;
+                        }
+                    }
+
+                    // Any item with playback progress belongs in Continue Watching, not Next Up
                     continue;
                 }
 
@@ -239,7 +311,6 @@ public class MergedRowsController : ControllerBase
                 // Fallback to the episode's own last played date or creation date
                 if (!activityDate.HasValue)
                 {
-                    var userData = this.userDataManager.GetUserData(user, item);
                     activityDate = userData?.LastPlayedDate ?? item.DateCreated;
                 }
 
