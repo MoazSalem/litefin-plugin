@@ -3,6 +3,7 @@
 // </copyright>
 
 #pragma warning disable CA1848 // Use LoggerMessage delegates for performance
+#pragma warning disable CA1031 // Do not catch general exception types
 
 namespace Litefin.Plugin.Controllers;
 
@@ -1009,11 +1010,30 @@ public class SeerrController : ControllerBase
         [FromQuery] string filter = "all",
         CancellationToken cancellationToken = default)
     {
-        // Resolve the authenticated user's Seerr ID to scope requests
-        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
-        if (!userId.HasValue)
+        try
         {
-            // If the user is not linked to Seerr, return an empty payload
+            // Resolve the authenticated user's Seerr ID to scope requests
+            var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+            if (!userId.HasValue)
+            {
+                // If the user is not linked to Seerr, return an empty payload
+                return this.Ok(new
+                {
+                    page = 1,
+                    totalPages = 1,
+                    totalResults = 0,
+                    results = Array.Empty<object>(),
+                });
+            }
+
+            // Scope to the specific user via requestedBy parameter and proxy as that user
+            var path = $"/request?take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&skip={Math.Max(0, skip).ToString(CultureInfo.InvariantCulture)}&filter={Uri.EscapeDataString(filter)}&requestedBy={userId.Value.ToString(CultureInfo.InvariantCulture)}";
+            return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, userId.Value).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Gracefully return empty payload if request listing fails
+            this.logger.LogWarning(ex, "Failed to retrieve Seerr requests for authenticated user");
             return this.Ok(new
             {
                 page = 1,
@@ -1022,10 +1042,6 @@ public class SeerrController : ControllerBase
                 results = Array.Empty<object>(),
             });
         }
-
-        // Scope to the specific user via requestedBy parameter and proxy as that user
-        var path = $"/request?take={Math.Max(1, take).ToString(CultureInfo.InvariantCulture)}&skip={Math.Max(0, skip).ToString(CultureInfo.InvariantCulture)}&filter={Uri.EscapeDataString(filter)}&requestedBy={userId.Value.ToString(CultureInfo.InvariantCulture)}";
-        return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, userId.Value).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -1322,14 +1338,37 @@ public class SeerrController : ControllerBase
     [HttpGet("Watchlist")]
     public async Task<IActionResult> GetWatchlist([FromQuery] int page = 1, CancellationToken cancellationToken = default)
     {
-        var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
-        if (!userId.HasValue)
+        try
         {
-            return this.StatusCode(StatusCodes.Status403Forbidden);
-        }
+            // Resolve Seerr user identifier
+            var userId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+            if (!userId.HasValue)
+            {
+                // Unlinked users have an empty watchlist
+                return this.Ok(new
+                {
+                    page = 1,
+                    totalPages = 1,
+                    totalResults = 0,
+                    results = Array.Empty<object>(),
+                });
+            }
 
-        var path = $"/user/{userId.Value.ToString(CultureInfo.InvariantCulture)}/watchlist?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}";
-        return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, userId).ConfigureAwait(false);
+            var path = $"/user/{userId.Value.ToString(CultureInfo.InvariantCulture)}/watchlist?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}";
+            return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, userId).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Gracefully return empty watchlist payload on network or resolution error
+            this.logger.LogWarning(ex, "Failed to retrieve Seerr watchlist for authenticated user");
+            return this.Ok(new
+            {
+                page = 1,
+                totalPages = 1,
+                totalResults = 0,
+                results = Array.Empty<object>(),
+            });
+        }
     }
 
     /// <summary>Removes a title from the authenticated user's Seerr watchlist.</summary>
@@ -1571,88 +1610,93 @@ public class SeerrController : ControllerBase
         int litefinPage,
         CancellationToken cancellationToken)
     {
-        if (!TryGetConfiguration(out _, out _))
+        try
         {
-            return this.StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Seerr is not configured." });
-        }
-
-        var normalizedPage = Math.Max(1, litefinPage);
-        var startSeerrPage = ((normalizedPage - 1) * 5) + 1;
-        var separator = pathWithoutPage.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-
-        var fetchTasks = Enumerable.Range(0, 5).Select(async offset =>
-        {
-            var targetSeerrPage = startSeerrPage + offset;
-            var targetPath = $"{pathWithoutPage}{separator}page={targetSeerrPage.ToString(CultureInfo.InvariantCulture)}";
-            try
+            if (!TryGetConfiguration(out _, out _))
             {
-                using var response = await this.SendAsync(HttpMethod.Get, targetPath, null, cancellationToken).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
+                return this.StatusCode(StatusCodes.Status503ServiceUnavailable, new { message = "Seerr is not configured." });
+            }
+
+            var normalizedPage = Math.Max(1, litefinPage);
+            var startSeerrPage = ((normalizedPage - 1) * 5) + 1;
+            var separator = pathWithoutPage.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+
+            // Concurrently query 5 upstream Seerr pages to construct 100-item Litefin page
+            var fetchTasks = Enumerable.Range(0, 5).Select(async offset =>
+            {
+                var targetSeerrPage = startSeerrPage + offset;
+                var targetPath = $"{pathWithoutPage}{separator}page={targetSeerrPage.ToString(CultureInfo.InvariantCulture)}";
+                try
                 {
-                    return null;
-                }
-
-                using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-                return doc.RootElement.Clone();
-            }
-            catch (HttpRequestException ex)
-            {
-                this.logger.LogWarning(ex, "Failed to fetch Seerr page {TargetPage} for path {Path}", targetSeerrPage, pathWithoutPage);
-                return (JsonElement?)null;
-            }
-            catch (TaskCanceledException ex)
-            {
-                this.logger.LogWarning(ex, "Timed out fetching Seerr page {TargetPage} for path {Path}", targetSeerrPage, pathWithoutPage);
-                return (JsonElement?)null;
-            }
-        });
-
-        var results = await Task.WhenAll(fetchTasks).ConfigureAwait(false);
-        var validDocs = results.Where(d => d.HasValue && d.Value.ValueKind == JsonValueKind.Object).Select(d => d!.Value).ToList();
-
-        if (validDocs.Count == 0)
-        {
-            return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to reach Seerr." });
-        }
-
-        var firstDoc = validDocs[0];
-        var upstreamTotalPages = firstDoc.TryGetProperty("totalPages", out var tpProp) && tpProp.TryGetInt32(out var tpVal) ? tpVal : 1;
-        var upstreamTotalResults = firstDoc.TryGetProperty("totalResults", out var trProp) && trProp.TryGetInt32(out var trVal) ? trVal : 0;
-
-        // Determine if the current authenticated user has administrative blocklist visibility
-        var canViewBlocklist = await this.CanUserViewBlocklistAsync(cancellationToken).ConfigureAwait(false);
-
-        // Collect and merge results across upstream pages, filtering blocklisted titles if non-admin
-        var mergedResults = new List<JsonElement>();
-        foreach (var doc in validDocs)
-        {
-            // Inspect document for results array
-            if (doc.TryGetProperty("results", out var resProp) && resProp.ValueKind == JsonValueKind.Array)
-            {
-                // Iterate through each candidate item
-                foreach (var item in resProp.EnumerateArray())
-                {
-                    // Exclude blocklisted titles when browsing as a standard non-admin user
-                    if (canViewBlocklist || !IsBlocklisted(item))
+                    using var response = await this.SendAsync(HttpMethod.Get, targetPath, null, cancellationToken).ConfigureAwait(false);
+                    if (!response.IsSuccessStatusCode)
                     {
-                        mergedResults.Add(item.Clone());
+                        return null;
+                    }
+
+                    using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                    using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                    return doc.RootElement.Clone();
+                }
+                catch (Exception ex)
+                {
+                    // Catch all exceptions on individual page queries so transient upstream payload flaws do not abort the merged batch
+                    this.logger.LogWarning(ex, "Failed to fetch Seerr page {TargetPage} for path {Path}", targetSeerrPage, pathWithoutPage);
+                    return (JsonElement?)null;
+                }
+            });
+
+            var results = await Task.WhenAll(fetchTasks).ConfigureAwait(false);
+            var validDocs = results.Where(d => d.HasValue && d.Value.ValueKind == JsonValueKind.Object).Select(d => d!.Value).ToList();
+
+            if (validDocs.Count == 0)
+            {
+                return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to reach Seerr." });
+            }
+
+            var firstDoc = validDocs[0];
+            var upstreamTotalPages = firstDoc.TryGetProperty("totalPages", out var tpProp) && tpProp.TryGetInt32(out var tpVal) ? tpVal : 1;
+            var upstreamTotalResults = firstDoc.TryGetProperty("totalResults", out var trProp) && trProp.TryGetInt32(out var trVal) ? trVal : 0;
+
+            // Determine if the current authenticated user has administrative blocklist visibility
+            var canViewBlocklist = await this.CanUserViewBlocklistAsync(cancellationToken).ConfigureAwait(false);
+
+            // Collect and merge results across upstream pages, filtering blocklisted titles if non-admin
+            var mergedResults = new List<JsonElement>();
+            foreach (var doc in validDocs)
+            {
+                // Inspect document for results array
+                if (doc.TryGetProperty("results", out var resProp) && resProp.ValueKind == JsonValueKind.Array)
+                {
+                    // Iterate through each candidate item
+                    foreach (var item in resProp.EnumerateArray())
+                    {
+                        // Exclude blocklisted titles when browsing as a standard non-admin user
+                        if (canViewBlocklist || !IsBlocklisted(item))
+                        {
+                            mergedResults.Add(item.Clone());
+                        }
                     }
                 }
             }
+
+            var mergedTotalPages = (int)Math.Ceiling(upstreamTotalPages / 5.0);
+
+            var mergedPayload = new Dictionary<string, object>
+            {
+                ["page"] = normalizedPage,
+                ["totalPages"] = Math.Max(1, mergedTotalPages),
+                ["totalResults"] = upstreamTotalResults,
+                ["results"] = mergedResults,
+            };
+
+            return this.Ok(mergedPayload);
         }
-
-        var mergedTotalPages = (int)Math.Ceiling(upstreamTotalPages / 5.0);
-
-        var mergedPayload = new Dictionary<string, object>
+        catch (Exception ex)
         {
-            ["page"] = normalizedPage,
-            ["totalPages"] = Math.Max(1, mergedTotalPages),
-            ["totalResults"] = upstreamTotalResults,
-            ["results"] = mergedResults,
-        };
-
-        return this.Ok(mergedPayload);
+            this.logger.LogError(ex, "ProxyGetMerged5PagesAsync encountered an unhandled exception for path {Path}", pathWithoutPage);
+            return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to reach Seerr." });
+        }
     }
 
     private async Task<IActionResult> ProxyGetAsync(string path, CancellationToken cancellationToken)
@@ -1709,6 +1753,11 @@ public class SeerrController : ControllerBase
             this.logger.LogWarning(ex, "Seerr request timed out for {Path}", path);
             return this.StatusCode(StatusCodes.Status504GatewayTimeout, new { message = "The Seerr request timed out." });
         }
+        catch (Exception ex)
+        {
+            this.logger.LogError(ex, "Seerr request encountered an unhandled exception for {Path}", path);
+            return this.StatusCode(StatusCodes.Status502BadGateway, new { message = "Unable to reach Seerr." });
+        }
     }
 
     private async Task<HttpResponseMessage> SendAsync(
@@ -1724,6 +1773,8 @@ public class SeerrController : ControllerBase
         }
 
         using var client = this.httpClientFactory.CreateClient();
+        client.Timeout = RequestTimeout;
+
         using var request = new HttpRequestMessage(method, $"{baseUrl}/api/v1{path}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
         request.Headers.Add("X-Api-Key", apiKey);
@@ -1739,7 +1790,12 @@ public class SeerrController : ControllerBase
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(RequestTimeout);
-        return await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
+
+        var response = await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
+
+        // Fully load response bytes into memory before returning so subsequent stream reads never encounter ObjectDisposedException
+        await response.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
+        return response;
     }
 
     private async Task<HttpResponseMessage> SendAsync(
@@ -1751,6 +1807,8 @@ public class SeerrController : ControllerBase
         CancellationToken cancellationToken)
     {
         using var client = this.httpClientFactory.CreateClient();
+        client.Timeout = RequestTimeout;
+
         using var request = new HttpRequestMessage(method, $"{baseUrl}/api/v1{path}");
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
         request.Headers.Add("X-Api-Key", apiKey);
@@ -1762,94 +1820,110 @@ public class SeerrController : ControllerBase
 
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(RequestTimeout);
-        return await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
+
+        var response = await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
+
+        // Fully load response bytes into memory before returning so subsequent stream reads never encounter ObjectDisposedException
+        await response.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
+        return response;
     }
 
     private async Task<int?> ResolveSeerrUserIdAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
     {
-        const int pageSize = 100;
-        var normalizedUserId = jellyfinUserId.ToString("N", CultureInfo.InvariantCulture);
-
-        for (var skip = 0; skip < 10000; skip += pageSize)
+        try
         {
-            var path = $"/user?take={pageSize.ToString(CultureInfo.InvariantCulture)}&skip={skip.ToString(CultureInfo.InvariantCulture)}";
-            using var response = await this.SendAsync(HttpMethod.Get, path, null, cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                this.logger.LogWarning("Unable to resolve Seerr user: upstream returned {StatusCode}", response.StatusCode);
-                return null;
-            }
+            const int pageSize = 100;
+            var normalizedUserId = jellyfinUserId.ToString("N", CultureInfo.InvariantCulture);
 
-            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-            var users = document.RootElement;
-            if (users.ValueKind == JsonValueKind.Object && users.TryGetProperty("results", out var results))
+            for (var skip = 0; skip < 10000; skip += pageSize)
             {
-                users = results;
-            }
-
-            if (users.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
-
-            var currentUsername = this.User.Identity?.Name;
-
-            foreach (var user in users.EnumerateArray())
-            {
-                if (!user.TryGetProperty("id", out var idProperty) || !idProperty.TryGetInt32(out var seerrUserId))
+                var path = $"/user?take={pageSize.ToString(CultureInfo.InvariantCulture)}&skip={skip.ToString(CultureInfo.InvariantCulture)}";
+                using var response = await this.SendAsync(HttpMethod.Get, path, null, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
                 {
-                    continue;
+                    this.logger.LogWarning("Unable to resolve Seerr user: upstream returned {StatusCode}", response.StatusCode);
+                    return null;
                 }
 
-                // ------------------------------------------------------------
-                // 1. Primary Match: jellyfinUserId GUID
-                // ------------------------------------------------------------
-                if (user.TryGetProperty("jellyfinUserId", out var jellyfinIdProperty))
+                using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                var users = document.RootElement;
+                if (users.ValueKind == JsonValueKind.Object && users.TryGetProperty("results", out var results))
                 {
-                    var candidate = jellyfinIdProperty.GetString()?.Replace("-", string.Empty, StringComparison.Ordinal);
-                    if (candidate != null
-                        && candidate.Equals(normalizedUserId, StringComparison.OrdinalIgnoreCase))
+                    users = results;
+                }
+
+                if (users.ValueKind != JsonValueKind.Array)
+                {
+                    return null;
+                }
+
+                var currentUsername = this.User.Identity?.Name;
+
+                foreach (var user in users.EnumerateArray())
+                {
+                    if (!user.TryGetProperty("id", out var idProperty) || !idProperty.TryGetInt32(out var seerrUserId))
                     {
-                        return seerrUserId;
+                        continue;
                     }
-                }
 
-                // ------------------------------------------------------------
-                // 2. Secondary Match: username fallback
-                // Used when accounts were imported or created without GUID linking
-                // ------------------------------------------------------------
-                if (!string.IsNullOrWhiteSpace(currentUsername))
-                {
-                    if (user.TryGetProperty("jellyfinUsername", out var jfUserProp))
+                    // ------------------------------------------------------------
+                    // 1. Primary Match: jellyfinUserId GUID (safe string validation)
+                    // ------------------------------------------------------------
+                    if (user.TryGetProperty("jellyfinUserId", out var jellyfinIdProperty)
+                        && jellyfinIdProperty.ValueKind == JsonValueKind.String)
                     {
-                        var jfUser = jfUserProp.GetString();
-                        if (!string.IsNullOrWhiteSpace(jfUser) && jfUser.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                        var candidate = jellyfinIdProperty.GetString()?.Replace("-", string.Empty, StringComparison.Ordinal);
+                        if (candidate != null
+                            && candidate.Equals(normalizedUserId, StringComparison.OrdinalIgnoreCase))
                         {
-                            this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via jellyfinUsername match '{Username}'", seerrUserId, currentUsername);
                             return seerrUserId;
                         }
                     }
 
-                    if (user.TryGetProperty("username", out var userProp))
+                    // ------------------------------------------------------------
+                    // 2. Secondary Match: username fallback
+                    // Used when accounts were imported or created without GUID linking
+                    // ------------------------------------------------------------
+                    if (!string.IsNullOrWhiteSpace(currentUsername))
                     {
-                        var uName = userProp.GetString();
-                        if (!string.IsNullOrWhiteSpace(uName) && uName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                        if (user.TryGetProperty("jellyfinUsername", out var jfUserProp)
+                            && jfUserProp.ValueKind == JsonValueKind.String)
                         {
-                            this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via username match '{Username}'", seerrUserId, currentUsername);
-                            return seerrUserId;
+                            var jfUser = jfUserProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(jfUser) && jfUser.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                            {
+                                this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via jellyfinUsername match '{Username}'", seerrUserId, currentUsername);
+                                return seerrUserId;
+                            }
+                        }
+
+                        if (user.TryGetProperty("username", out var userProp)
+                            && userProp.ValueKind == JsonValueKind.String)
+                        {
+                            var uName = userProp.GetString();
+                            if (!string.IsNullOrWhiteSpace(uName) && uName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
+                            {
+                                this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via username match '{Username}'", seerrUserId, currentUsername);
+                                return seerrUserId;
+                            }
                         }
                     }
                 }
+
+                if (users.GetArrayLength() < pageSize)
+                {
+                    break;
+                }
             }
 
-            if (users.GetArrayLength() < pageSize)
-            {
-                break;
-            }
+            return null;
         }
-
-        return null;
+        catch (Exception ex)
+        {
+            this.logger.LogWarning(ex, "Failed to resolve Seerr user for Jellyfin user {UserId}", jellyfinUserId);
+            return null;
+        }
     }
 
     private Task<int?> ResolveAuthenticatedSeerrUserIdAsync(CancellationToken cancellationToken)
@@ -1862,21 +1936,29 @@ public class SeerrController : ControllerBase
 
     private async Task<bool> HasSeerrPermissionAsync(int seerrUserId, int permission, CancellationToken cancellationToken)
     {
-        using var response = await this.SendAsync(HttpMethod.Get, "/auth/me", null, cancellationToken, seerrUserId).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        try
         {
+            using var response = await this.SendAsync(HttpMethod.Get, "/auth/me", null, cancellationToken, seerrUserId).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return false;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (!document.RootElement.TryGetProperty("permissions", out var value) || !value.TryGetInt32(out var permissions))
+            {
+                return false;
+            }
+
+            const int adminPermission = 2;
+            return (permissions & adminPermission) != 0 || (permissions & permission) != 0;
+        }
+        catch (Exception ex)
+        {
+            this.logger.LogWarning(ex, "Failed to evaluate Seerr permission bit {Permission} for user {UserId}", permission, seerrUserId);
             return false;
         }
-
-        using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-        if (!document.RootElement.TryGetProperty("permissions", out var value) || !value.TryGetInt32(out var permissions))
-        {
-            return false;
-        }
-
-        const int adminPermission = 2;
-        return (permissions & adminPermission) != 0 || (permissions & permission) != 0;
     }
 
     private Guid? GetAuthenticatedUserId()
@@ -1894,52 +1976,61 @@ public class SeerrController : ControllerBase
     /// <returns><c>true</c> if blocklisted items should be visible; otherwise <c>false</c>.</returns>
     private async Task<bool> CanUserViewBlocklistAsync(CancellationToken cancellationToken)
     {
-        // -------------------------------------------------------------------------
-        // 1. Jellyfin Administrator Check
-        // -------------------------------------------------------------------------
-        // Fast synchronous check: Jellyfin administrators always have elevated privileges.
-        if (this.User.IsInRole("Administrator")
-            || this.User.Claims.Any(c => (c.Type == System.Security.Claims.ClaimTypes.Role || c.Type.Equals("Role", StringComparison.OrdinalIgnoreCase))
-                && c.Value.Equals("Administrator", StringComparison.OrdinalIgnoreCase)))
+        try
         {
-            return true;
-        }
+            // -------------------------------------------------------------------------
+            // 1. Jellyfin Administrator Check
+            // -------------------------------------------------------------------------
+            // Fast synchronous check: Jellyfin administrators always have elevated privileges.
+            if (this.User.IsInRole("Administrator")
+                || this.User.Claims.Any(c => (c.Type == System.Security.Claims.ClaimTypes.Role || c.Type.Equals("Role", StringComparison.OrdinalIgnoreCase))
+                    && c.Value.Equals("Administrator", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
 
-        // -------------------------------------------------------------------------
-        // 2. Memory Cache Lookup for Non-Admin Accounts
-        // -------------------------------------------------------------------------
-        // Check if we already resolved permission for this Jellyfin user in the last 5 minutes.
-        var jellyfinUserId = this.GetAuthenticatedUserId();
-        if (jellyfinUserId.HasValue && BlocklistPermissionCache.TryGetValue(jellyfinUserId.Value, out var cached) && DateTime.UtcNow < cached.ExpiresAt)
+            // -------------------------------------------------------------------------
+            // 2. Memory Cache Lookup for Non-Admin Accounts
+            // -------------------------------------------------------------------------
+            // Check if we already resolved permission for this Jellyfin user in the last 5 minutes.
+            var jellyfinUserId = this.GetAuthenticatedUserId();
+            if (jellyfinUserId.HasValue && BlocklistPermissionCache.TryGetValue(jellyfinUserId.Value, out var cached) && DateTime.UtcNow < cached.ExpiresAt)
+            {
+                return cached.CanView;
+            }
+
+            var canView = false;
+
+            // -------------------------------------------------------------------------
+            // 3. Upstream Seerr User Permission Evaluation
+            // -------------------------------------------------------------------------
+            // Look up the matching Seerr user account and inspect their permission bits.
+            // Permission bits: MANAGE_BLOCKLIST = 268435456 (0x10000000), VIEW_BLOCKLIST = 1073741824 (0x40000000)
+            var seerrUserId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+            if (seerrUserId.HasValue)
+            {
+                const int manageBlocklist = 268435456;
+                const int viewBlocklist = 1073741824;
+                canView = await this.HasSeerrPermissionAsync(seerrUserId.Value, manageBlocklist | viewBlocklist, cancellationToken).ConfigureAwait(false);
+            }
+
+            // -------------------------------------------------------------------------
+            // 4. Cache Update
+            // -------------------------------------------------------------------------
+            // Cache the result for 5 minutes so subsequent pagination and slider requests are instant.
+            if (jellyfinUserId.HasValue)
+            {
+                BlocklistPermissionCache[jellyfinUserId.Value] = (canView, DateTime.UtcNow.AddMinutes(5));
+            }
+
+            return canView;
+        }
+        catch (Exception ex)
         {
-            return cached.CanView;
+            // Fail safely: non-admin mode hides blocklisted titles without throwing 500 error
+            this.logger.LogWarning(ex, "Failed to evaluate Seerr blocklist viewing permissions; defaulting to safe non-admin view");
+            return false;
         }
-
-        var canView = false;
-
-        // -------------------------------------------------------------------------
-        // 3. Upstream Seerr User Permission Evaluation
-        // -------------------------------------------------------------------------
-        // Look up the matching Seerr user account and inspect their permission bits.
-        // Permission bits: MANAGE_BLOCKLIST = 268435456 (0x10000000), VIEW_BLOCKLIST = 1073741824 (0x40000000)
-        var seerrUserId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
-        if (seerrUserId.HasValue)
-        {
-            const int manageBlocklist = 268435456;
-            const int viewBlocklist = 1073741824;
-            canView = await this.HasSeerrPermissionAsync(seerrUserId.Value, manageBlocklist | viewBlocklist, cancellationToken).ConfigureAwait(false);
-        }
-
-        // -------------------------------------------------------------------------
-        // 4. Cache Update
-        // -------------------------------------------------------------------------
-        // Cache the result for 5 minutes so subsequent pagination and slider requests are instant.
-        if (jellyfinUserId.HasValue)
-        {
-            BlocklistPermissionCache[jellyfinUserId.Value] = (canView, DateTime.UtcNow.AddMinutes(5));
-        }
-
-        return canView;
     }
 
     /// <summary>
