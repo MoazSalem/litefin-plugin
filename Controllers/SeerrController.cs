@@ -12,6 +12,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Mime;
@@ -39,6 +40,10 @@ public class SeerrController : ControllerBase
     // In-memory cache holding non-admin blocklist visibility permissions
     // Keyed by Jellyfin User ID to avoid repeated upstream network roundtrips
     private static readonly ConcurrentDictionary<Guid, (bool CanView, DateTime ExpiresAt)> BlocklistPermissionCache = new();
+
+    // In-memory cache holding upstream Seerr CSRF tokens and secrets
+    // Keyed by normalized base URL to support Seerr instances with CSRF protection enabled
+    private static readonly ConcurrentDictionary<string, SeerrCsrfToken> CsrfTokenCache = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly IHttpClientFactory httpClientFactory;
     private readonly ILogger<SeerrController> logger;
@@ -273,10 +278,16 @@ public class SeerrController : ControllerBase
 
         try
         {
+            // Acquire active CSRF credentials if CSRF protection is enabled on the target Seerr server
+            var csrf = await this.EnsureCsrfTokenAsync(baseUrl, null, cancellationToken).ConfigureAwait(false);
+
             // Contact Seerr's Quick Connect initiation endpoint directly
             using var client = this.httpClientFactory.CreateClient();
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v1/auth/jellyfin/quickconnect/initiate");
             httpRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            // Attach CSRF cookies and verification tokens to prevent EBADCSRFTOKEN rejection
+            AttachCsrfHeaders(httpRequest, baseUrl, csrf);
 
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(RequestTimeout);
@@ -378,12 +389,18 @@ public class SeerrController : ControllerBase
             }
 
             // Step 2: Exchange authorized secret for an authenticated session with Seerr
+            // Acquire active CSRF credentials if CSRF protection is enabled on the target Seerr server
+            var csrf = await this.EnsureCsrfTokenAsync(baseUrl, null, cancellationToken).ConfigureAwait(false);
+
             var authPayload = JsonSerializer.Serialize(new { secret = request.Secret });
             using var exchangeRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/v1/auth/jellyfin/quickconnect/authenticate")
             {
                 Content = new StringContent(authPayload, Encoding.UTF8, MediaTypeNames.Application.Json),
             };
             exchangeRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            // Attach CSRF cookies and verification tokens to prevent EBADCSRFTOKEN rejection
+            AttachCsrfHeaders(exchangeRequest, baseUrl, csrf);
 
             using var exchangeResponse = await client.SendAsync(exchangeRequest, timeoutSource.Token).ConfigureAwait(false);
             if (!exchangeResponse.IsSuccessStatusCode)
@@ -487,6 +504,9 @@ public class SeerrController : ControllerBase
             using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeoutSource.CancelAfter(RequestTimeout);
 
+            // Acquire active CSRF credentials if CSRF protection is enabled on the target Seerr server
+            var csrf = await this.EnsureCsrfTokenAsync(baseUrl, null, timeoutSource.Token).ConfigureAwait(false);
+
             // Attempt Jellyfin authentication endpoint on Seerr first
             var jellyfinLoginPayload = JsonSerializer.Serialize(new
             {
@@ -499,6 +519,9 @@ public class SeerrController : ControllerBase
                 Content = new StringContent(jellyfinLoginPayload, Encoding.UTF8, MediaTypeNames.Application.Json),
             };
             jfRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            // Attach CSRF cookies and verification tokens to prevent EBADCSRFTOKEN rejection
+            AttachCsrfHeaders(jfRequest, baseUrl, csrf);
 
             using var jfResponse = await client.SendAsync(jfRequest, timeoutSource.Token).ConfigureAwait(false);
 
@@ -521,6 +544,9 @@ public class SeerrController : ControllerBase
                     Content = new StringContent(localLoginPayload, Encoding.UTF8, MediaTypeNames.Application.Json),
                 };
                 localRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+                // Attach CSRF cookies and verification tokens to the local authentication fallback
+                AttachCsrfHeaders(localRequest, baseUrl, csrf);
 
                 using var localResponse = await client.SendAsync(localRequest, timeoutSource.Token).ConfigureAwait(false);
                 if (localResponse.IsSuccessStatusCode)
@@ -1435,6 +1461,217 @@ public class SeerrController : ControllerBase
         return null;
     }
 
+    /// <summary>
+    /// Parses a single cookie value from a Set-Cookie header string by cookie name.
+    /// </summary>
+    /// <param name="setCookieHeader">The raw Set-Cookie header string.</param>
+    /// <param name="name">The name of the cookie to find.</param>
+    /// <param name="value">The parsed cookie value if found.</param>
+    /// <returns><c>true</c> if the cookie was found and non-empty; otherwise <c>false</c>.</returns>
+    private static bool TryReadSetCookie(string setCookieHeader, string name, out string value)
+    {
+        value = string.Empty;
+
+        // Verify parameter validity before attempting extraction
+        if (string.IsNullOrWhiteSpace(setCookieHeader) || string.IsNullOrWhiteSpace(name))
+        {
+            return false;
+        }
+
+        // Standard Set-Cookie headers start directly with the cookie name followed by '='
+        var prefix = name + "=";
+        var startIndex = 0;
+
+        if (!setCookieHeader.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            // Fallback for cases where multiple cookies are joined or have leading whitespace
+            var idx = setCookieHeader.IndexOf(prefix, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+            {
+                return false;
+            }
+
+            // Ensure the match is preceded by a separator or whitespace, preventing partial substring matches
+            if (idx > 0 && setCookieHeader[idx - 1] != ';' && setCookieHeader[idx - 1] != ' ' && setCookieHeader[idx - 1] != ',')
+            {
+                return false;
+            }
+
+            startIndex = idx;
+        }
+
+        // Extract value substring up to the next semicolon delimiter
+        var raw = setCookieHeader[(startIndex + prefix.Length)..];
+        var semiIndex = raw.IndexOf(';', StringComparison.Ordinal);
+        if (semiIndex >= 0)
+        {
+            raw = raw[..semiIndex];
+        }
+
+        value = raw.Trim();
+        return value.Length > 0;
+    }
+
+    /// <summary>
+    /// Extracts the _csrf secret and XSRF-TOKEN verification token from an upstream HTTP response.
+    /// </summary>
+    /// <param name="response">The response message from Seerr.</param>
+    /// <param name="secret">The extracted _csrf secret cookie value.</param>
+    /// <param name="token">The extracted XSRF-TOKEN value.</param>
+    /// <returns><c>true</c> if both the secret and token were found; otherwise <c>false</c>.</returns>
+    private static bool TryExtractCsrfToken(HttpResponseMessage response, out string secret, out string token)
+    {
+        secret = string.Empty;
+        token = string.Empty;
+
+        // Inspect standard response headers for Set-Cookie directives
+        if (response.Headers.TryGetValues("Set-Cookie", out var setCookieHeaders))
+        {
+            foreach (var header in setCookieHeaders)
+            {
+                // Capture the secret required for the _csrf cookie
+                if (TryReadSetCookie(header, "_csrf", out var s))
+                {
+                    secret = s;
+                }
+                else if (TryReadSetCookie(header, "XSRF-TOKEN", out var t))
+                {
+                    // Capture the token generated by Seerr for header verification
+                    token = t;
+                }
+            }
+        }
+
+        // Both parts are required for csurf verification
+        return !string.IsNullOrEmpty(secret) && !string.IsNullOrEmpty(token);
+    }
+
+    /// <summary>
+    /// Passively updates the in-memory CSRF cache using any Set-Cookie headers present on incoming Seerr responses.
+    /// </summary>
+    /// <param name="baseUrl">The normalized base URL of the Seerr server.</param>
+    /// <param name="response">The response received from Seerr.</param>
+    private static void UpdateCsrfCacheFromResponse(string baseUrl, HttpResponseMessage response)
+    {
+        // Skip processing if no cookie directives were returned by upstream
+        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookieHeaders))
+        {
+            return;
+        }
+
+        string? newSecret = null;
+        string? newToken = null;
+
+        // Read all Set-Cookie headers in the response
+        foreach (var header in setCookieHeaders)
+        {
+            if (TryReadSetCookie(header, "_csrf", out var s))
+            {
+                newSecret = s;
+            }
+            else if (TryReadSetCookie(header, "XSRF-TOKEN", out var t))
+            {
+                newToken = t;
+            }
+        }
+
+        // If neither CSRF component was present, do not update cache
+        if (string.IsNullOrEmpty(newSecret) && string.IsNullOrEmpty(newToken))
+        {
+            return;
+        }
+
+        // Update or add the token in the concurrent cache
+        CsrfTokenCache.AddOrUpdate(
+            baseUrl,
+            _ =>
+            {
+                // Both must be present for a fresh entry
+                if (!string.IsNullOrEmpty(newSecret) && !string.IsNullOrEmpty(newToken))
+                {
+                    return new SeerrCsrfToken(newSecret, newToken, DateTime.UtcNow.AddMinutes(30));
+                }
+
+                return null!;
+            },
+            (_, existing) =>
+            {
+                // Preserve existing secret if Seerr did not rotate it on this request
+                var effectiveSecret = !string.IsNullOrEmpty(newSecret) ? newSecret : existing?.Secret;
+                var effectiveToken = !string.IsNullOrEmpty(newToken) ? newToken : existing?.Token;
+
+                if (!string.IsNullOrEmpty(effectiveSecret) && !string.IsNullOrEmpty(effectiveToken))
+                {
+                    return new SeerrCsrfToken(effectiveSecret, effectiveToken, DateTime.UtcNow.AddMinutes(30));
+                }
+
+                return existing!;
+            });
+    }
+
+    /// <summary>
+    /// Attaches the necessary CSRF cookie and headers to an outgoing request to satisfy Seerr's csurf middleware.
+    /// </summary>
+    /// <param name="request">The HTTP request message to enrich.</param>
+    /// <param name="baseUrl">The base URL of the upstream Seerr server.</param>
+    /// <param name="csrf">The active CSRF credentials, or null if CSRF protection is inactive.</param>
+    private static void AttachCsrfHeaders(HttpRequestMessage request, string baseUrl, SeerrCsrfToken? csrf)
+    {
+        // If CSRF protection is not active on upstream, no extra headers are needed
+        if (csrf == null || string.IsNullOrEmpty(csrf.Secret) || string.IsNullOrEmpty(csrf.Token))
+        {
+            return;
+        }
+
+        // Combine existing cookies with CSRF cookies
+        var existingCookie = request.Headers.Contains("Cookie")
+            ? string.Join("; ", request.Headers.GetValues("Cookie"))
+            : null;
+
+        var csrfCookies = $"_csrf={csrf.Secret}; XSRF-TOKEN={csrf.Token}";
+        var combinedCookie = string.IsNullOrEmpty(existingCookie)
+            ? csrfCookies
+            : $"{existingCookie}; {csrfCookies}";
+
+        // Replace the Cookie header with the enriched cookie string
+        request.Headers.Remove("Cookie");
+        request.Headers.TryAddWithoutValidation("Cookie", combinedCookie);
+
+        // Attach CSRF verification tokens in standard headers accepted by csurf
+        request.Headers.TryAddWithoutValidation("X-CSRF-Token", csrf.Token);
+        request.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", csrf.Token);
+
+        // Provide Origin and Referer headers matching the upstream authority for strict reverse-proxy configurations
+        if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri))
+        {
+            request.Headers.TryAddWithoutValidation("Origin", baseUri.GetLeftPart(UriPartial.Authority));
+            request.Headers.TryAddWithoutValidation("Referer", baseUrl.TrimEnd('/') + "/");
+        }
+    }
+
+    /// <summary>
+    /// Evaluates whether an upstream HTTP response failed due to an invalid or missing CSRF token.
+    /// </summary>
+    /// <param name="statusCode">The HTTP response status code.</param>
+    /// <param name="responseBody">The raw body string returned by the upstream server.</param>
+    /// <returns><c>true</c> if the failure is caused by CSRF rejection; otherwise <c>false</c>.</returns>
+    private static bool IsCsrfError(HttpStatusCode statusCode, string? responseBody)
+    {
+        // Seerr's csurf middleware explicitly rejects with HTTP 403 Forbidden
+        if (statusCode != HttpStatusCode.Forbidden)
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return false;
+        }
+
+        // Check for CSRF keyword in the error response payload
+        return responseBody.Contains("csrf", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static void SaveSeerrConfiguration(string baseUrl, string apiKey)
     {
         var plugin = Plugin.Instance;
@@ -1571,6 +1808,97 @@ public class SeerrController : ControllerBase
         }
 
         return dict;
+    }
+
+    /// <summary>
+    /// Ensures that valid CSRF credentials exist for the specified Seerr instance.
+    /// Probes Seerr's status endpoint if not cached or expired to seed the session cookies and token.
+    /// </summary>
+    /// <param name="baseUrl">The normalized base URL of the Seerr server.</param>
+    /// <param name="apiKey">Optional API key to authenticate probe requests.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="forceRefresh">Whether to bypass cache and force a new upstream probe.</param>
+    /// <returns>The active CSRF credentials if CSRF protection is active; otherwise null.</returns>
+    private async Task<SeerrCsrfToken?> EnsureCsrfTokenAsync(
+        string baseUrl,
+        string? apiKey,
+        CancellationToken cancellationToken,
+        bool forceRefresh = false)
+    {
+        // Check whether active unexpired credentials or a verified disabled status already exist in cache
+        if (!forceRefresh && CsrfTokenCache.TryGetValue(baseUrl, out var cached) && cached != null && !cached.IsExpired)
+        {
+            // If CSRF was determined to be disabled on this instance, return null immediately without any network calls
+            return cached.IsEnabled ? cached : null;
+        }
+
+        try
+        {
+            // Create client to probe the upstream server
+            using var client = this.httpClientFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(10);
+
+            // Probe Seerr's status endpoint to trigger the global csurf middleware
+            using var probeRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/v1/status");
+            probeRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+
+            // Attach API key if available
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                probeRequest.Headers.Add("X-Api-Key", apiKey);
+            }
+
+            // If an existing secret is known, pass it along so Seerr reuses the secret
+            if (CsrfTokenCache.TryGetValue(baseUrl, out var existing) && existing != null && !string.IsNullOrWhiteSpace(existing.Secret))
+            {
+                probeRequest.Headers.TryAddWithoutValidation("Cookie", $"_csrf={existing.Secret}");
+            }
+
+            // Bound timeout for quick response
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(TimeSpan.FromSeconds(10));
+
+            // Send probe request
+            using var response = await client.SendAsync(probeRequest, timeoutSource.Token).ConfigureAwait(false);
+
+            // Extract CSRF secret and token from response headers
+            if (TryExtractCsrfToken(response, out var secret, out var token))
+            {
+                var tokenState = new SeerrCsrfToken(secret, token, DateTime.UtcNow.AddMinutes(30));
+                CsrfTokenCache[baseUrl] = tokenState;
+                return tokenState;
+            }
+
+            // Fallback: If status did not yield cookies and API key is present, probe /api/v1/auth/me
+            if (!string.IsNullOrWhiteSpace(apiKey))
+            {
+                using var authMeRequest = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/api/v1/auth/me");
+                authMeRequest.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+                authMeRequest.Headers.Add("X-Api-Key", apiKey);
+
+                using var authMeTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                authMeTimeout.CancelAfter(TimeSpan.FromSeconds(10));
+
+                using var authMeResponse = await client.SendAsync(authMeRequest, authMeTimeout.Token).ConfigureAwait(false);
+
+                if (TryExtractCsrfToken(authMeResponse, out secret, out token))
+                {
+                    var tokenState = new SeerrCsrfToken(secret, token, DateTime.UtcNow.AddMinutes(30));
+                    CsrfTokenCache[baseUrl] = tokenState;
+                    return tokenState;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            this.logger.LogDebug(ex, "Failed to prefetch CSRF token from Seerr at {BaseUrl}", baseUrl);
+        }
+
+        // If Seerr has CSRF protection disabled, no cookies will be returned.
+        // Cache this disabled state for 30 minutes so subsequent calls bypass all probing with zero overhead.
+        var disabledState = new SeerrCsrfToken(DateTime.UtcNow.AddMinutes(30));
+        CsrfTokenCache[baseUrl] = disabledState;
+        return null;
     }
 
     private async Task<string?> FetchSeerrApiKeyAsync(string baseUrl, string cookieHeader, CancellationToken cancellationToken)
@@ -1767,35 +2095,16 @@ public class SeerrController : ControllerBase
         CancellationToken cancellationToken,
         int? seerrUserId = null)
     {
+        // -----------------------------------------------------------------
+        // Validate Plugin Configuration
+        // -----------------------------------------------------------------
         if (!TryGetConfiguration(out var baseUrl, out var apiKey))
         {
             throw new InvalidOperationException("Seerr is not configured.");
         }
 
-        using var client = this.httpClientFactory.CreateClient();
-        client.Timeout = RequestTimeout;
-
-        using var request = new HttpRequestMessage(method, $"{baseUrl}/api/v1{path}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
-        request.Headers.Add("X-Api-Key", apiKey);
-        if (seerrUserId.HasValue)
-        {
-            request.Headers.Add("X-Api-User", seerrUserId.Value.ToString(CultureInfo.InvariantCulture));
-        }
-
-        if (body != null)
-        {
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, MediaTypeNames.Application.Json);
-        }
-
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(RequestTimeout);
-
-        var response = await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
-
-        // Fully load response bytes into memory before returning so subsequent stream reads never encounter ObjectDisposedException
-        await response.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
-        return response;
+        // Delegate to unified SendAsync implementation with resolved credentials
+        return await this.SendAsync(method, path, body, baseUrl, apiKey, cancellationToken, seerrUserId).ConfigureAwait(false);
     }
 
     private async Task<HttpResponseMessage> SendAsync(
@@ -1804,27 +2113,97 @@ public class SeerrController : ControllerBase
         object? body,
         string baseUrl,
         string apiKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int? seerrUserId = null)
     {
+        // Acquire an HTTP client from factory
         using var client = this.httpClientFactory.CreateClient();
         client.Timeout = RequestTimeout;
 
-        using var request = new HttpRequestMessage(method, $"{baseUrl}/api/v1{path}");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
-        request.Headers.Add("X-Api-Key", apiKey);
+        // -----------------------------------------------------------------
+        // CSRF Protection Handling
+        // -----------------------------------------------------------------
+        // Mutating HTTP methods (POST, PUT, DELETE, PATCH) are inspected by Seerr's csurf middleware.
+        // If "Enable CSRF Protection" is enabled in Seerr, these calls strictly require:
+        // 1. The httpOnly secret cookie (_csrf)
+        // 2. The readable CSRF verification token in header (X-CSRF-Token or X-XSRF-TOKEN)
+        var isStateChanging = method != HttpMethod.Get && method != HttpMethod.Head && method != HttpMethod.Options;
+        SeerrCsrfToken? csrf = null;
 
-        if (body != null)
+        if (isStateChanging)
         {
-            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, MediaTypeNames.Application.Json);
+            // Ensure valid CSRF credentials exist before dispatching the mutating call
+            csrf = await this.EnsureCsrfTokenAsync(baseUrl, apiKey, cancellationToken).ConfigureAwait(false);
         }
 
+        // Local factory creating a clean HttpRequestMessage (and fresh content stream if retried)
+        HttpRequestMessage CreateRequestMessage()
+        {
+            var req = new HttpRequestMessage(method, $"{baseUrl}/api/v1{path}");
+            req.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(MediaTypeNames.Application.Json));
+            req.Headers.Add("X-Api-Key", apiKey);
+
+            // Forward targeted user identity if acting on behalf of a specific Seerr user account
+            if (seerrUserId.HasValue)
+            {
+                req.Headers.Add("X-Api-User", seerrUserId.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            // Serialize JSON body payload when present
+            if (body != null)
+            {
+                req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, MediaTypeNames.Application.Json);
+            }
+
+            // Attach CSRF cookies and token headers for mutating requests
+            if (isStateChanging)
+            {
+                AttachCsrfHeaders(req, baseUrl, csrf);
+            }
+
+            return req;
+        }
+
+        // Set up bounded execution timeout
         using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutSource.CancelAfter(RequestTimeout);
 
+        // Execute initial HTTP request attempt
+        using var request = CreateRequestMessage();
         var response = await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
 
-        // Fully load response bytes into memory before returning so subsequent stream reads never encounter ObjectDisposedException
+        // Fully buffer response content into memory for inspection and subsequent stream consumption
         await response.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
+
+        // -----------------------------------------------------------------
+        // Handle CSRF Token Rejection & Automatic Retry
+        // -----------------------------------------------------------------
+        // If the upstream server returned 403 Forbidden with an invalid CSRF token message,
+        // invalidate our cached credentials, fetch a fresh CSRF token, and retry the request once.
+        if (isStateChanging && response.StatusCode == HttpStatusCode.Forbidden)
+        {
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if (IsCsrfError(response.StatusCode, responseContent))
+            {
+                this.logger.LogWarning("Seerr rejected {Method} {Path} with invalid CSRF token. Refreshing CSRF credentials and retrying...", method, path);
+
+                // Force refresh CSRF credentials from upstream
+                csrf = await this.EnsureCsrfTokenAsync(baseUrl, apiKey, cancellationToken, forceRefresh: true).ConfigureAwait(false);
+
+                // Build a fresh request message with updated CSRF credentials
+                using var retryRequest = CreateRequestMessage();
+                var retryResponse = await client.SendAsync(retryRequest, timeoutSource.Token).ConfigureAwait(false);
+                await retryResponse.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
+
+                // Dispose the failed response and replace with the retry outcome
+                response.Dispose();
+                response = retryResponse;
+            }
+        }
+
+        // Passively update our in-memory CSRF cache with any Set-Cookie headers returned
+        UpdateCsrfCacheFromResponse(baseUrl, response);
+
         return response;
     }
 
@@ -2267,5 +2646,62 @@ public class SeerrController : ControllerBase
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Holds cached CSRF credentials for communication with an upstream Seerr instance.
+    /// </summary>
+    private sealed class SeerrCsrfToken
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SeerrCsrfToken"/> class with active credentials.
+        /// </summary>
+        /// <param name="secret">The CSRF secret cookie value.</param>
+        /// <param name="token">The CSRF verification token.</param>
+        /// <param name="expiresAt">The timestamp after which the token should be refreshed.</param>
+        public SeerrCsrfToken(string secret, string token, DateTime expiresAt)
+        {
+            this.Secret = secret;
+            this.Token = token;
+            this.ExpiresAt = expiresAt;
+            this.IsEnabled = true;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SeerrCsrfToken"/> class indicating CSRF protection is disabled upstream.
+        /// </summary>
+        /// <param name="expiresAt">The timestamp after which upstream status may be re-checked.</param>
+        public SeerrCsrfToken(DateTime expiresAt)
+        {
+            this.Secret = string.Empty;
+            this.Token = string.Empty;
+            this.ExpiresAt = expiresAt;
+            this.IsEnabled = false;
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether CSRF protection is active on upstream.
+        /// </summary>
+        public bool IsEnabled { get; }
+
+        /// <summary>
+        /// Gets the secret value stored in the _csrf cookie.
+        /// </summary>
+        public string Secret { get; }
+
+        /// <summary>
+        /// Gets the verification token passed via the X-CSRF-Token or X-XSRF-TOKEN header.
+        /// </summary>
+        public string Token { get; }
+
+        /// <summary>
+        /// Gets the cache expiration timestamp in UTC.
+        /// </summary>
+        public DateTime ExpiresAt { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether this cached token is expired.
+        /// </summary>
+        public bool IsExpired => DateTime.UtcNow >= this.ExpiresAt;
     }
 }
