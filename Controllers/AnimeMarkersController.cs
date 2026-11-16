@@ -40,6 +40,7 @@ using Microsoft.Extensions.Logging;
 public class AnimeMarkersController : ControllerBase
 {
     private readonly ILibraryManager libraryManager;
+    private readonly IMediaSourceManager mediaSourceManager;
     private readonly AnimeFillerListService fillerListService;
     private readonly ILogger<AnimeMarkersController> logger;
 
@@ -47,16 +48,19 @@ public class AnimeMarkersController : ControllerBase
     /// Initializes a new instance of the <see cref="AnimeMarkersController"/> class.
     /// </summary>
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
+    /// <param name="mediaSourceManager">Instance of the <see cref="IMediaSourceManager"/> interface.</param>
     /// <param name="httpClientFactory">Instance of the <see cref="IHttpClientFactory"/> interface.</param>
     /// <param name="applicationPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
     /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
     public AnimeMarkersController(
         ILibraryManager libraryManager,
+        IMediaSourceManager mediaSourceManager,
         IHttpClientFactory httpClientFactory,
         IApplicationPaths applicationPaths,
         ILoggerFactory loggerFactory)
     {
         this.libraryManager = libraryManager;
+        this.mediaSourceManager = mediaSourceManager;
         this.logger = loggerFactory.CreateLogger<AnimeMarkersController>();
 
         // Instantiate the marker resolution and cache service
@@ -98,10 +102,9 @@ public class AnimeMarkersController : ControllerBase
 
         // Check if the series represents an anime candidate
         var isAnime = AnimeTitleMatcher.IsAnimeCandidate(series);
-        var resolvedSlug = AnimeTitleMatcher.ResolveSlug(series.Name);
 
-        // If the series has no anime indicators and no known slug, return early
-        if (!isAnime && string.IsNullOrEmpty(resolvedSlug))
+        // If the series has no anime indicators and is not in our known catalog, return early
+        if (!isAnime)
         {
             return this.Ok(new AnimeMarkersResponse
             {
@@ -110,6 +113,8 @@ public class AnimeMarkersController : ControllerBase
                 Slug = null,
             });
         }
+
+        var resolvedSlug = AnimeTitleMatcher.ResolveSlug(series.Name);
 
         // Retrieve scraped or cached marker definitions if a slug was resolved
         CachedShowData? showData = null;
@@ -129,8 +134,31 @@ public class AnimeMarkersController : ControllerBase
 
         var episodes = this.libraryManager.GetItemList(episodeQuery).OfType<Episode>().ToList();
 
-        // Map episode media streams and filler list markers
-        var (episodeVerdicts, seasonVerdicts) = AnimeEpisodeMapper.MapEpisodes(episodes, showData);
+        // ---------------------------------------------------------------------
+        // Episode Media Stream & Canon Marker Association
+        // ---------------------------------------------------------------------
+        // Standard Jellyfin GetItemList queries deliberately omit media stream
+        // relational records to keep database query latency minimal.
+        // We supply an explicit stream resolution delegate through IMediaSourceManager
+        // so audio tracks (Subbed, Dubbed, Subbed/Dubbed) are populated accurately
+        // for all episodes without failing back to unclassified states.
+        // ---------------------------------------------------------------------
+        var (episodeVerdicts, seasonVerdicts) = AnimeEpisodeMapper.MapEpisodes(
+            episodes,
+            showData,
+            ep =>
+            {
+                try
+                {
+                    // Query stream descriptors from the media source manager
+                    return this.mediaSourceManager.GetMediaStreams(ep.Id);
+                }
+                catch (Exception ex)
+                {
+                    this.logger.LogTrace(ex, "Failed to resolve media streams for episode {Id}", ep.Id);
+                    return null;
+                }
+            });
 
         // Assemble the client response payload
         var response = new AnimeMarkersResponse

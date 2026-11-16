@@ -26,10 +26,12 @@ public static class AnimeEpisodeMapper
     /// </summary>
     /// <param name="episodes">Collection of episodes belonging to the series.</param>
     /// <param name="showData">Parsed canonical markers from the reference provider, or null.</param>
+    /// <param name="getStreams">Optional provider delegate to resolve media streams from the media source manager.</param>
     /// <returns>Pair containing mapped episode verdicts and season verdicts.</returns>
     public static (Dictionary<string, EpisodeVerdict> Episodes, Dictionary<string, SeasonVerdict> Seasons) MapEpisodes(
         IReadOnlyList<Episode> episodes,
-        CachedShowData? showData)
+        CachedShowData? showData,
+        Func<Episode, IReadOnlyList<MediaStream>?>? getStreams = null)
     {
         var episodeResults = new Dictionary<string, EpisodeVerdict>(StringComparer.OrdinalIgnoreCase);
         var seasonResults = new Dictionary<string, SeasonVerdict>(StringComparer.OrdinalIgnoreCase);
@@ -51,8 +53,14 @@ public static class AnimeEpisodeMapper
         {
             var epKey = episode.Id.ToString("N", CultureInfo.InvariantCulture);
 
-            // Classify audio stream tracks (Subbed, Dubbed, Subbed/Dubbed)
-            var audioVerdict = ClassifyAudioStreams(episode);
+            // -----------------------------------------------------------------
+            // Resolve Media Streams for Audio Classification
+            // -----------------------------------------------------------------
+            // Prefer streams supplied via the media source manager delegate to guarantee
+            // relational database rows are queried even when GetItemList bypassed them.
+            // -----------------------------------------------------------------
+            var streams = getStreams != null ? getStreams(episode) : null;
+            var audioVerdict = ClassifyAudioStreams(episode, streams);
 
             // Record audio in season tracking map
             if (episode.SeasonId != Guid.Empty && !string.IsNullOrEmpty(audioVerdict))
@@ -66,16 +74,24 @@ public static class AnimeEpisodeMapper
                 audioList.Add(audioVerdict);
             }
 
-            // Resolve canonical episode kind if show markers are available
+            // -----------------------------------------------------------------
+            // Resolve Canonical Episode Classification (Kind & Recap)
+            // -----------------------------------------------------------------
+            // When showData is populated, the series was successfully matched
+            // to a recognized anime entry in the AnimeFillerList directory.
+            // -----------------------------------------------------------------
             string? kind = null;
             var isRecap = false;
 
-            if (showData != null && showData.Episodes.Count > 0)
+            if (showData != null)
             {
+                // Compute the absolute episode sequence number candidate
                 var candidateNumber = ResolveAbsoluteEpisodeNumber(episode, seasonOffsets, showData.Episodes);
 
+                // Check if candidate number exists in the parsed marker dictionary
                 if (candidateNumber.HasValue && showData.Episodes.TryGetValue(candidateNumber.Value, out var marker))
                 {
+                    // Map provider enum to standardized client contract strings
                     kind = marker.Kind switch
                     {
                         AnimeEpisodeKind.Filler => "Filler",
@@ -85,6 +101,18 @@ public static class AnimeEpisodeMapper
                     };
 
                     isRecap = marker.Recap;
+                }
+                else
+                {
+                    // ---------------------------------------------------------
+                    // Default Canon Classification for Unindexed Episodes
+                    // ---------------------------------------------------------
+                    // In verified anime series, any standard episode that is not
+                    // explicitly identified as filler or anime-original is canon
+                    // (MangaCanon) by definition. Defaulting to MangaCanon ensures
+                    // the kind property is never omitted or null for confirmed anime.
+                    // ---------------------------------------------------------
+                    kind = "MangaCanon";
                 }
             }
 
@@ -119,8 +147,9 @@ public static class AnimeEpisodeMapper
     /// Analyzes audio streams on an episode item to categorize it as Subbed, Dubbed, or Subbed/Dubbed.
     /// </summary>
     /// <param name="episode">The Jellyfin episode entity.</param>
+    /// <param name="mediaStreams">Optional explicit collection of media streams from the media source manager.</param>
     /// <returns>Audio classification string or null if unresolvable.</returns>
-    public static string? ClassifyAudioStreams(Episode episode)
+    public static string? ClassifyAudioStreams(Episode episode, IReadOnlyList<MediaStream>? mediaStreams = null)
     {
         // Guard against null episode
         if (episode == null)
@@ -128,8 +157,13 @@ public static class AnimeEpisodeMapper
             return null;
         }
 
-        // Fetch media streams using Jellyfin SDK method
-        var streams = episode.GetMediaStreams();
+        // ---------------------------------------------------------------------
+        // Media Stream Candidate Selection
+        // ---------------------------------------------------------------------
+        // First check explicit streams passed from IMediaSourceManager;
+        // fall back to episode entity property if streams were already populated.
+        // ---------------------------------------------------------------------
+        var streams = mediaStreams ?? episode.GetMediaStreams();
         if (streams == null || streams.Count == 0)
         {
             return null;

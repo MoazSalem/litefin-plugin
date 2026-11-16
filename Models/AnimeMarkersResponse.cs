@@ -2,6 +2,8 @@
 // Copyright (c) Jellyfin Project. All rights reserved.
 // </copyright>
 
+#pragma warning disable CA2227 // Collection properties should be read-only - setter required for JSON deserialization
+
 namespace Litefin.Plugin.Models;
 
 using System.Collections.Generic;
@@ -31,14 +33,14 @@ public class AnimeMarkersResponse
     public string? Slug { get; set; }
 
     /// <summary>
-    /// Gets the episode classification entries keyed by Jellyfin episode GUID.
+    /// Gets or sets the episode classification entries keyed by Jellyfin episode GUID.
     /// </summary>
     [JsonPropertyName("episodes")]
-    public Dictionary<string, EpisodeVerdict> Episodes { get; } = new();
+    public Dictionary<string, EpisodeVerdict> Episodes { get; set; } = new();
 
     /// <summary>
-    /// Gets the aggregated season entries keyed by Jellyfin season GUID.
+    /// Gets or sets the aggregated season entries keyed by Jellyfin season GUID.
     /// </summary>
     [JsonPropertyName("seasons")]
-    public Dictionary<string, SeasonVerdict> Seasons { get; } = new();
+    public Dictionary<string, SeasonVerdict> Seasons { get; set; } = new();
 }

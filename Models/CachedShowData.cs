@@ -2,6 +2,8 @@
 // Copyright (c) Jellyfin Project. All rights reserved.
 // </copyright>
 
+#pragma warning disable CA2227 // Collection properties should be read-only - setter required for JSON deserialization
+
 namespace Litefin.Plugin.Models;
 
 using System;
@@ -23,7 +25,7 @@ public class CachedShowData
     public DateTime FetchedAt { get; set; }
 
     /// <summary>
-    /// Gets the map of absolute episode numbers to their parsed classification metadata.
+    /// Gets or sets the map of absolute episode numbers to their parsed classification metadata.
     /// </summary>
-    public Dictionary<int, AnimeMarkerEpisode> Episodes { get; } = new();
+    public Dictionary<int, AnimeMarkerEpisode> Episodes { get; set; } = new();
 }

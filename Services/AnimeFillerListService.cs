@@ -37,8 +37,12 @@ public class AnimeFillerListService
     // Concurrency throttle to avoid overwhelming the upstream provider
     private static readonly SemaphoreSlim RequestThrottle = new(2, 2);
 
-    // Cached JSON serializer options to avoid re-allocation on write operations
-    private static readonly JsonSerializerOptions IndentedJsonOptions = new() { WriteIndented = true };
+    // Cached JSON serializer options to avoid re-allocation on read and write operations
+    private static readonly JsonSerializerOptions IndentedJsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNameCaseInsensitive = true,
+    };
 
     // In-memory cache holding parsed show datasets keyed by normalized slug
     private static readonly ConcurrentDictionary<string, CachedShowData> MemoryCache = new(StringComparer.OrdinalIgnoreCase);
@@ -312,6 +316,8 @@ public class AnimeFillerListService
     private async Task<CachedShowData?> LoadFromDiskAsync(string slug, CancellationToken cancellationToken)
     {
         var filePath = Path.Combine(this.cacheDirectory, $"{slug}.json");
+
+        // Verify that the cached JSON file exists on disk
         if (!File.Exists(filePath))
         {
             return null;
@@ -319,8 +325,34 @@ public class AnimeFillerListService
 
         try
         {
+            // Open read stream to deserialize cached show data
             using var stream = File.OpenRead(filePath);
-            return await JsonSerializer.DeserializeAsync<CachedShowData>(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var data = await JsonSerializer.DeserializeAsync<CachedShowData>(stream, IndentedJsonOptions, cancellationToken).ConfigureAwait(false);
+
+            // -----------------------------------------------------------------
+            // Validate Cached Episode Dictionary
+            // -----------------------------------------------------------------
+            // If the cache file is empty, missing episodes, or was serialized
+            // prior to property setter enablement, invalidate and purge the file
+            // so an upstream fetch is triggered instead of serving stale/empty data.
+            // -----------------------------------------------------------------
+            if (data == null || data.Episodes == null || data.Episodes.Count == 0)
+            {
+                this.logger.LogWarning("Cached anime markers file at {Path} contains no episodes; purging corrupted cache file", filePath);
+
+                try
+                {
+                    File.Delete(filePath);
+                }
+                catch (Exception deleteEx)
+                {
+                    this.logger.LogTrace(deleteEx, "Failed to delete corrupted anime cache file {Path}", filePath);
+                }
+
+                return null;
+            }
+
+            return data;
         }
         catch (Exception ex)
         {
