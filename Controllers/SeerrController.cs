@@ -18,6 +18,7 @@ using System.Net.Http.Headers;
 using System.Net.Mime;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Litefin.Plugin.Models;
@@ -35,7 +36,27 @@ using Microsoft.Extensions.Logging;
 [Produces(MediaTypeNames.Application.Json)]
 public class SeerrController : ControllerBase
 {
+    // Upper bound on image bodies GetImage buffers; larger responses fall back to the TMDB redirect
+    private const long MaxImageBytes = 20 * 1024 * 1024;
+
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
+
+    // TMDB image path segments accepted by GetImage; mirrors Seerr's own imageproxy validation
+    private static readonly Regex ImagePathSegmentRegex = new(@"^[A-Za-z0-9_.-]+\z", RegexOptions.Compiled);
+
+    // TMDB duotone filter segments such as w1280_filter(duotone,991B1B,FCA5A5)
+    private static readonly Regex ImageDuotoneSegmentRegex = new(@"^w[0-9]+_filter\(duotone,[0-9A-Fa-f]{6},[0-9A-Fa-f]{6}\)\z", RegexOptions.Compiled);
+
+    // Image types GetImage passes through, mapped to the type it responds with; anything else
+    // falls back to the TMDB redirect. Seerr labels JPEGs "image/jpg" (image/<file extension>).
+    private static readonly Dictionary<string, string> AllowedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["image/jpeg"] = "image/jpeg",
+        ["image/jpg"] = "image/jpeg",
+        ["image/png"] = "image/png",
+        ["image/webp"] = "image/webp",
+        ["image/gif"] = "image/gif",
+    };
 
     // In-memory cache holding non-admin blocklist visibility permissions
     // Keyed by Jellyfin User ID to avoid repeated upstream network roundtrips
@@ -76,17 +97,17 @@ public class SeerrController : ControllerBase
         try
         {
             using var response = await this.SendAsync(HttpMethod.Get, "/auth/me", null, cancellationToken).ConfigureAwait(false);
-            return this.Ok(new { configured = true, available = response.IsSuccessStatusCode });
+            return this.Ok(new { configured = true, available = response.IsSuccessStatusCode, imageProxy = true });
         }
         catch (HttpRequestException ex)
         {
             this.logger.LogWarning(ex, "Unable to reach the configured Seerr instance");
-            return this.Ok(new { configured = true, available = false });
+            return this.Ok(new { configured = true, available = false, imageProxy = true });
         }
         catch (TaskCanceledException ex)
         {
             this.logger.LogWarning(ex, "Timed out while checking the configured Seerr instance");
-            return this.Ok(new { configured = true, available = false });
+            return this.Ok(new { configured = true, available = false, imageProxy = true });
         }
     }
 
@@ -945,6 +966,81 @@ public class SeerrController : ControllerBase
         => this.ProxyGetAsync($"/person/{personId.ToString(CultureInfo.InvariantCulture)}/combined_credits", cancellationToken);
 
     /// <summary>
+    /// Serves a TMDB image through Seerr's image cache so clients without internet access can show Seerr artwork.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous because image elements cannot send the Jellyfin authorization header. The path is
+    /// validated segment by segment and is only ever forwarded to Seerr's <c>/imageproxy/tmdb/</c> route.
+    /// When Seerr cannot serve the image (for example, when its image caching is disabled), the client
+    /// is redirected to TMDB instead.
+    /// </remarks>
+    /// <param name="path">The TMDB image path, for example <c>t/p/w500/abc.jpg</c>.</param>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The image, a redirect to TMDB, or an error status.</returns>
+    [HttpGet("Image/{**path}")]
+    [AllowAnonymous]
+    [Produces("image/jpeg", "image/png", "image/webp", "image/gif")]
+    [ProducesResponseType(typeof(FileContentResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status302Found)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetImage([FromRoute] string path, CancellationToken cancellationToken)
+    {
+        if (!TryGetConfiguration(out var baseUrl, out _))
+        {
+            return this.NotFound();
+        }
+
+        var segments = string.IsNullOrEmpty(path) ? Array.Empty<string>() : path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length == 0 || !segments.All(IsAllowedImagePathSegment))
+        {
+            return this.BadRequest();
+        }
+
+        var imagePath = string.Join('/', segments);
+
+        try
+        {
+            using var client = this.httpClientFactory.CreateClient();
+            client.Timeout = RequestTimeout;
+
+            // Bodies over the cap make SendAsync throw HttpRequestException, which falls back to the redirect
+            client.MaxResponseContentBufferSize = MaxImageBytes;
+
+            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutSource.CancelAfter(RequestTimeout);
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl}/imageproxy/tmdb/{imagePath}");
+            using var response = await client.SendAsync(request, timeoutSource.Token).ConfigureAwait(false);
+            var contentType = response.Content.Headers.ContentType?.MediaType;
+
+            if (response.IsSuccessStatusCode && contentType != null && AllowedImageContentTypes.TryGetValue(contentType, out var responseType))
+            {
+                var bytes = await response.Content.ReadAsByteArrayAsync(timeoutSource.Token).ConfigureAwait(false);
+                this.Response.Headers.CacheControl = response.Headers.CacheControl?.ToString() ?? "public, max-age=86400";
+                this.Response.Headers.XContentTypeOptions = "nosniff";
+                return this.File(bytes, responseType);
+            }
+
+            this.logger.LogDebug(
+                "Seerr image proxy returned {StatusCode} ({ContentType}) for {Path}; redirecting to TMDB",
+                (int)response.StatusCode,
+                contentType,
+                imagePath);
+        }
+        catch (HttpRequestException ex)
+        {
+            this.logger.LogDebug(ex, "Seerr image proxy request failed for {Path}; redirecting to TMDB", imagePath);
+        }
+        catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            this.logger.LogDebug(ex, "Seerr image proxy request timed out for {Path}; redirecting to TMDB", imagePath);
+        }
+
+        return this.Redirect($"https://image.tmdb.org/{imagePath}");
+    }
+
+    /// <summary>
     /// Gets details for a Seerr movie.
     /// </summary>
     /// <param name="tmdbId">The TMDB movie identifier.</param>
@@ -1431,6 +1527,10 @@ public class SeerrController : ControllerBase
         var configuration = Plugin.Instance?.Configuration;
         return TryNormalizeConfiguration(configuration?.SeerrUrl, configuration?.SeerrApiKey, out baseUrl, out apiKey);
     }
+
+    private static bool IsAllowedImagePathSegment(string segment)
+        => segment != "." && segment != ".."
+            && (ImagePathSegmentRegex.IsMatch(segment) || ImageDuotoneSegmentRegex.IsMatch(segment));
 
     private static bool TryNormalizeUrl(string? configuredUrl, out string baseUrl)
     {
