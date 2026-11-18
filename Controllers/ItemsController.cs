@@ -256,6 +256,14 @@ public class ItemsController : ControllerBase
                     continue;
                 }
 
+                // Check whether the client opted into rating fields — these are base DTO properties,
+                // not ItemFields enum members, so they can't be controlled via DtoOptions.Fields.
+                // Instead we check the raw fields string the client sent and conditionally preserve them.
+                var wantsRatings = !string.IsNullOrWhiteSpace(fields)
+                    && fields.Contains("CommunityRating", StringComparison.OrdinalIgnoreCase);
+                var wantsCriticRating = !string.IsNullOrWhiteSpace(fields)
+                    && fields.Contains("CriticRating", StringComparison.OrdinalIgnoreCase);
+
                 var dtos = this.dtoService.GetBaseItemDtos(resolvedItems, dtoOptions, user);
                 for (int i = 0; i < dtos.Count; i++)
                 {
@@ -264,9 +272,22 @@ public class ItemsController : ControllerBase
                     // Strip unneeded metadata fields to produce a minimal home card DTO.
                     // Note: EndDate and Status are preserved so the client can display
                     // continuing series ("2026 - Present") and finished series date ranges accurately.
+                    // CommunityRating and CriticRating are conditionally preserved when the client
+                    // explicitly requests them (card ratings feature), otherwise nulled for bandwidth.
                     dto.PremiereDate = null;
                     dto.OfficialRating = null;
-                    dto.CommunityRating = null;
+
+                    // Only strip rating if the client hasn't opted into it
+                    if (!wantsRatings)
+                    {
+                        dto.CommunityRating = null;
+                    }
+
+                    if (!wantsCriticRating)
+                    {
+                        dto.CriticRating = null;
+                    }
+
                     dto.ChannelId = null;
                     dto.AirDays = null;
                     dto.ChildCount = null;
@@ -488,7 +509,9 @@ public class ItemsController : ControllerBase
                     itemDto.PremiereDate = null;
                     itemDto.EndDate = null;
                     itemDto.OfficialRating = null;
-                    itemDto.CommunityRating = null;
+
+                    // CommunityRating is a base property always populated; preserve it so library
+                    // thumbnail cards can display ratings if the feature is enabled on the client.
                     itemDto.ChannelId = null;
                     itemDto.Status = null;
                     itemDto.AirDays = null;
