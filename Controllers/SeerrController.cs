@@ -45,6 +45,10 @@ public class SeerrController : ControllerBase
     // Keyed by normalized base URL to support Seerr instances with CSRF protection enabled
     private static readonly ConcurrentDictionary<string, SeerrCsrfToken> CsrfTokenCache = new(StringComparer.OrdinalIgnoreCase);
 
+    // In-memory cache holding resolved Seerr user IDs for Jellyfin users
+    // Keyed by Jellyfin User ID to avoid repeated upstream network roundtrips on GET requests
+    private static readonly ConcurrentDictionary<Guid, (int? UserId, DateTime ExpiresAt)> SeerrUserIdCache = new();
+
     private readonly IHttpClientFactory httpClientFactory;
     private readonly ILogger<SeerrController> logger;
 
@@ -616,13 +620,20 @@ public class SeerrController : ControllerBase
     }
 
     /// <summary>
-    /// Gets trending media from Seerr.
+    /// Gets trending media from Seerr with localization support.
     /// </summary>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Trending")]
-    public Task<IActionResult> GetTrending(CancellationToken cancellationToken)
-        => this.ProxyGetAsync("/discover/trending", cancellationToken);
+    public Task<IActionResult> GetTrending(
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+    {
+        // Enforce active language tag onto the upstream discover route
+        var path = this.AppendEffectiveLanguage("/discover/trending", language);
+        return this.ProxyGetAsync(path, cancellationToken);
+    }
 
     /// <summary>
     /// Gets popular movies from Seerr, optionally filtered by genre, language, certification, keywords, or studio, merging 5 upstream pages.
@@ -655,9 +666,11 @@ public class SeerrController : ControllerBase
             queryParams.Add($"genre={Uri.EscapeDataString(genre)}");
         }
 
-        if (!string.IsNullOrWhiteSpace(language))
+        // Resolve requested language explicitly or from Accept-Language header
+        var effectiveLanguage = this.ResolveEffectiveLanguage(language);
+        if (!string.IsNullOrWhiteSpace(effectiveLanguage))
         {
-            queryParams.Add($"language={Uri.EscapeDataString(language)}");
+            queryParams.Add($"language={Uri.EscapeDataString(effectiveLanguage)}");
         }
 
         if (!string.IsNullOrWhiteSpace(certification))
@@ -695,6 +708,7 @@ public class SeerrController : ControllerBase
     /// <param name="genreId">The genre identifier.</param>
     /// <param name="page">The page number.</param>
     /// <param name="sortBy">The optional sort expression.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Genre/{genreId:int}")]
@@ -702,10 +716,13 @@ public class SeerrController : ControllerBase
         [FromRoute] int genreId,
         [FromQuery] int page = 1,
         [FromQuery] string? sortBy = null,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
     {
         var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
-        return this.ProxyGetMerged5PagesAsync($"/discover/movies?genre={genreId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+        var rawPath = $"/discover/movies?genre={genreId.ToString(CultureInfo.InvariantCulture)}{sortParam}";
+        var basePath = this.AppendEffectiveLanguage(rawPath, language);
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
     }
 
     /// <summary>
@@ -714,6 +731,7 @@ public class SeerrController : ControllerBase
     /// <param name="keywordId">The keyword identifier.</param>
     /// <param name="page">The page number.</param>
     /// <param name="sortBy">The optional sort expression.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Keyword/{keywordId:int}")]
@@ -721,10 +739,13 @@ public class SeerrController : ControllerBase
         [FromRoute] int keywordId,
         [FromQuery] int page = 1,
         [FromQuery] string? sortBy = null,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
     {
         var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
-        return this.ProxyGetMerged5PagesAsync($"/discover/movies?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+        var rawPath = $"/discover/movies?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}{sortParam}";
+        var basePath = this.AppendEffectiveLanguage(rawPath, language);
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
     }
 
     /// <summary>
@@ -732,14 +753,20 @@ public class SeerrController : ControllerBase
     /// </summary>
     /// <param name="studioId">The studio identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Studio/{studioId:int}")]
     public Task<IActionResult> GetMoviesByStudio(
         [FromRoute] int studioId,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync($"/discover/movies/studio/{studioId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+    {
+        var rawPath = $"/discover/movies/studio/{studioId.ToString(CultureInfo.InvariantCulture)}";
+        var basePath = this.AppendEffectiveLanguage(rawPath, language);
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
+    }
 
     /// <summary>
     /// Gets popular television series from Seerr, optionally filtered by genre, language, certification, keywords, or network, merging 5 upstream pages.
@@ -772,9 +799,11 @@ public class SeerrController : ControllerBase
             queryParams.Add($"genre={Uri.EscapeDataString(genre)}");
         }
 
-        if (!string.IsNullOrWhiteSpace(language))
+        // Resolve requested language explicitly or from Accept-Language header
+        var effectiveLanguage = this.ResolveEffectiveLanguage(language);
+        if (!string.IsNullOrWhiteSpace(effectiveLanguage))
         {
-            queryParams.Add($"language={Uri.EscapeDataString(language)}");
+            queryParams.Add($"language={Uri.EscapeDataString(effectiveLanguage)}");
         }
 
         if (!string.IsNullOrWhiteSpace(certification))
@@ -812,6 +841,7 @@ public class SeerrController : ControllerBase
     /// <param name="genreId">The genre identifier.</param>
     /// <param name="page">The page number.</param>
     /// <param name="sortBy">The optional sort expression.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Genre/{genreId:int}")]
@@ -819,10 +849,13 @@ public class SeerrController : ControllerBase
         [FromRoute] int genreId,
         [FromQuery] int page = 1,
         [FromQuery] string? sortBy = null,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
     {
         var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
-        return this.ProxyGetMerged5PagesAsync($"/discover/tv?genre={genreId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+        var rawPath = $"/discover/tv?genre={genreId.ToString(CultureInfo.InvariantCulture)}{sortParam}";
+        var basePath = this.AppendEffectiveLanguage(rawPath, language);
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
     }
 
     /// <summary>
@@ -831,6 +864,7 @@ public class SeerrController : ControllerBase
     /// <param name="keywordId">The keyword identifier.</param>
     /// <param name="page">The page number.</param>
     /// <param name="sortBy">The optional sort expression.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Keyword/{keywordId:int}")]
@@ -838,10 +872,13 @@ public class SeerrController : ControllerBase
         [FromRoute] int keywordId,
         [FromQuery] int page = 1,
         [FromQuery] string? sortBy = null,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
     {
         var sortParam = !string.IsNullOrWhiteSpace(sortBy) ? $"&sortBy={Uri.EscapeDataString(sortBy)}" : string.Empty;
-        return this.ProxyGetMerged5PagesAsync($"/discover/tv?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}{sortParam}", page, cancellationToken);
+        var rawPath = $"/discover/tv?keywords={keywordId.ToString(CultureInfo.InvariantCulture)}{sortParam}";
+        var basePath = this.AppendEffectiveLanguage(rawPath, language);
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
     }
 
     /// <summary>
@@ -849,67 +886,90 @@ public class SeerrController : ControllerBase
     /// </summary>
     /// <param name="networkId">The network identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Network/{networkId:int}")]
     public Task<IActionResult> GetTvByNetwork(
         [FromRoute] int networkId,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync($"/discover/tv/network/{networkId.ToString(CultureInfo.InvariantCulture)}", page, cancellationToken);
+    {
+        var rawPath = $"/discover/tv/network/{networkId.ToString(CultureInfo.InvariantCulture)}";
+        var basePath = this.AppendEffectiveLanguage(rawPath, language);
+        return this.ProxyGetMerged5PagesAsync(basePath, page, cancellationToken);
+    }
 
     /// <summary>
     /// Gets upcoming movies from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies/Upcoming")]
-    public Task<IActionResult> GetUpcomingMovies([FromQuery] int page = 1, CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync("/discover/movies/upcoming", page, cancellationToken);
+    public Task<IActionResult> GetUpcomingMovies(
+        [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync(this.AppendEffectiveLanguage("/discover/movies/upcoming", language), page, cancellationToken);
 
     /// <summary>
     /// Gets upcoming television series from Seerr, merging 5 upstream pages.
     /// </summary>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv/Upcoming")]
-    public Task<IActionResult> GetUpcomingTv([FromQuery] int page = 1, CancellationToken cancellationToken = default)
-        => this.ProxyGetMerged5PagesAsync("/discover/tv/upcoming", page, cancellationToken);
+    public Task<IActionResult> GetUpcomingTv(
+        [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetMerged5PagesAsync(this.AppendEffectiveLanguage("/discover/tv/upcoming", language), page, cancellationToken);
 
     /// <summary>
     /// Gets movie genre slider items from Seerr.
     /// </summary>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/GenreSlider/Movie")]
-    public Task<IActionResult> GetGenreSliderMovie(CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync("/discover/genreslider/movie", cancellationToken);
+    public Task<IActionResult> GetGenreSliderMovie(
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage("/discover/genreslider/movie", language), cancellationToken);
 
     /// <summary>
     /// Gets tv genre slider items from Seerr.
     /// </summary>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/GenreSlider/Tv")]
-    public Task<IActionResult> GetGenreSliderTv(CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync("/discover/genreslider/tv", cancellationToken);
+    public Task<IActionResult> GetGenreSliderTv(
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage("/discover/genreslider/tv", language), cancellationToken);
 
     /// <summary>
     /// Searches the Seerr catalogue.
     /// </summary>
     /// <param name="query">The search query.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Search")]
     public Task<IActionResult> Search(
         [FromQuery] string query,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
     {
-        var path = $"/search?query={Uri.EscapeDataString(query ?? string.Empty)}&page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}";
+        var rawPath = $"/search?query={Uri.EscapeDataString(query ?? string.Empty)}&page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}";
+        var path = this.AppendEffectiveLanguage(rawPath, language);
         return this.ProxyGetAsync(path, cancellationToken);
     }
 
@@ -917,108 +977,136 @@ public class SeerrController : ControllerBase
     /// Gets details for a Seerr collection.
     /// </summary>
     /// <param name="collectionId">The collection identifier.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Collection/{collectionId:int}")]
-    public Task<IActionResult> GetCollectionDetails([FromRoute] int collectionId, CancellationToken cancellationToken)
-        => this.ProxyGetAsync($"/collection/{collectionId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+    public Task<IActionResult> GetCollectionDetails(
+        [FromRoute] int collectionId,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/collection/{collectionId.ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets details for a person from Seerr.
     /// </summary>
     /// <param name="personId">The TMDB person identifier.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Person/{personId:int}")]
-    public Task<IActionResult> GetPersonDetails([FromRoute] int personId, CancellationToken cancellationToken)
-        => this.ProxyGetAsync($"/person/{personId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+    public Task<IActionResult> GetPersonDetails(
+        [FromRoute] int personId,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/person/{personId.ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets combined credits (cast and crew filmography) for a person from Seerr.
     /// </summary>
     /// <param name="personId">The TMDB person identifier.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Person/{personId:int}/CombinedCredits")]
     [HttpGet("Person/{personId:int}/combined_credits")]
-    public Task<IActionResult> GetPersonCombinedCredits([FromRoute] int personId, CancellationToken cancellationToken)
-        => this.ProxyGetAsync($"/person/{personId.ToString(CultureInfo.InvariantCulture)}/combined_credits", cancellationToken);
+    public Task<IActionResult> GetPersonCombinedCredits(
+        [FromRoute] int personId,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/person/{personId.ToString(CultureInfo.InvariantCulture)}/combined_credits", language), cancellationToken);
 
     /// <summary>
     /// Gets details for a Seerr movie.
     /// </summary>
     /// <param name="tmdbId">The TMDB movie identifier.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Movie/{tmdbId:int}")]
-    public Task<IActionResult> GetMovieDetails([FromRoute] int tmdbId, CancellationToken cancellationToken)
-        => this.ProxyGetAsync($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+    public Task<IActionResult> GetMovieDetails(
+        [FromRoute] int tmdbId,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets similar movies from Seerr.
     /// </summary>
     /// <param name="tmdbId">The TMDB movie identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Movie/{tmdbId:int}/Similar")]
     public Task<IActionResult> GetMovieSimilar(
         [FromRoute] int tmdbId,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/similar?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/similar?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets recommended movies from Seerr.
     /// </summary>
     /// <param name="tmdbId">The TMDB movie identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Movie/{tmdbId:int}/Recommendations")]
     public Task<IActionResult> GetMovieRecommendations(
         [FromRoute] int tmdbId,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/movie/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets details and seasons for a Seerr television series.
     /// </summary>
     /// <param name="tmdbId">The TMDB series identifier.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Tv/{tmdbId:int}")]
-    public Task<IActionResult> GetTvDetails([FromRoute] int tmdbId, CancellationToken cancellationToken)
-        => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+    public Task<IActionResult> GetTvDetails(
+        [FromRoute] int tmdbId,
+        [FromQuery] string? language = null,
+        CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets similar television series from Seerr.
     /// </summary>
     /// <param name="tmdbId">The TMDB series identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Tv/{tmdbId:int}/Similar")]
     public Task<IActionResult> GetTvSimilar(
         [FromRoute] int tmdbId,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/similar?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/similar?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets recommended television series from Seerr.
     /// </summary>
     /// <param name="tmdbId">The TMDB series identifier.</param>
     /// <param name="page">The page number.</param>
+    /// <param name="language">The optional language identifier.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Tv/{tmdbId:int}/Recommendations")]
     public Task<IActionResult> GetTvRecommendations(
         [FromRoute] int tmdbId,
         [FromQuery] int page = 1,
+        [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
-        => this.ProxyGetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        => this.ProxyGetAsync(this.AppendEffectiveLanguage($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/recommendations?page={Math.Max(1, page).ToString(CultureInfo.InvariantCulture)}", language), cancellationToken);
 
     /// <summary>
     /// Gets Seerr requests list scoped specifically to the authenticated Jellyfin user.
@@ -1927,6 +2015,74 @@ public class SeerrController : ControllerBase
     }
 
     /// <summary>
+    /// Resolves the effective language tag to request from Seerr/TMDB.
+    /// Prefers an explicit query parameter, falling back to the client's Accept-Language header.
+    /// </summary>
+    /// <param name="explicitLanguage">The explicit language parameter from query string.</param>
+    /// <returns>A normalized language string (e.g. "de", "pt-BR", "es"), or null if unspecified.</returns>
+    private string? ResolveEffectiveLanguage(string? explicitLanguage)
+    {
+        // 1. If explicit query parameter is provided, sanitize and return it
+        if (!string.IsNullOrWhiteSpace(explicitLanguage))
+        {
+            return explicitLanguage.Trim();
+        }
+
+        // 2. Fall back to client's Accept-Language HTTP header
+        if (this.Request?.Headers.TryGetValue("Accept-Language", out var rawAcceptLanguage) == true
+            && !string.IsNullOrWhiteSpace(rawAcceptLanguage))
+        {
+            // Accept-Language can be a comma-separated list like "de,en;q=0.8" or "pt-BR,pt;q=0.9"
+            var primary = rawAcceptLanguage.ToString().Split(',')[0].Trim();
+            // Strip any quality values (e.g. ";q=1.0")
+            var clean = primary.Split(';')[0].Trim();
+            if (!string.IsNullOrWhiteSpace(clean))
+            {
+                var parts = clean.Split(new[] { '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length >= 2)
+                {
+                    return $"{parts[0].ToLowerInvariant()}-{parts[1].ToUpperInvariant()}";
+                }
+                if (parts.Length == 1)
+                {
+                    return parts[0].ToLowerInvariant();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Appends the effective language parameter to an upstream Seerr path if not already present.
+    /// </summary>
+    /// <param name="path">The relative API path.</param>
+    /// <param name="explicitLanguage">The optional explicit language parameter.</param>
+    /// <returns>The path with the language parameter appended if resolved.</returns>
+    private string AppendEffectiveLanguage(string path, string? explicitLanguage = null)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return path;
+        }
+
+        // Avoid adding duplicate language parameter if already in query string
+        if (path.Contains("language=", StringComparison.OrdinalIgnoreCase))
+        {
+            return path;
+        }
+
+        var effectiveLanguage = this.ResolveEffectiveLanguage(explicitLanguage);
+        if (string.IsNullOrWhiteSpace(effectiveLanguage))
+        {
+            return path;
+        }
+
+        var separator = path.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{path}{separator}language={Uri.EscapeDataString(effectiveLanguage)}";
+    }
+
+    /// <summary>
     /// Proxies a GET request to Seerr by fetching 5 consecutive upstream pages concurrently and merging them into a single 100-item page payload.
     /// </summary>
     /// <param name="pathWithoutPage">The API path without the page query parameter.</param>
@@ -1949,6 +2105,9 @@ public class SeerrController : ControllerBase
             var startSeerrPage = ((normalizedPage - 1) * 5) + 1;
             var separator = pathWithoutPage.Contains('?', StringComparison.Ordinal) ? "&" : "?";
 
+            // Resolve authenticated Seerr user ID to ensure upstream queries preserve user locale and context
+            var seerrUserId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+
             // Concurrently query 5 upstream Seerr pages to construct 100-item Litefin page
             var fetchTasks = Enumerable.Range(0, 5).Select(async offset =>
             {
@@ -1956,7 +2115,7 @@ public class SeerrController : ControllerBase
                 var targetPath = $"{pathWithoutPage}{separator}page={targetSeerrPage.ToString(CultureInfo.InvariantCulture)}";
                 try
                 {
-                    using var response = await this.SendAsync(HttpMethod.Get, targetPath, null, cancellationToken).ConfigureAwait(false);
+                    using var response = await this.SendAsync(HttpMethod.Get, targetPath, null, cancellationToken, seerrUserId).ConfigureAwait(false);
                     if (!response.IsSuccessStatusCode)
                     {
                         return null;
@@ -2028,7 +2187,11 @@ public class SeerrController : ControllerBase
     }
 
     private async Task<IActionResult> ProxyGetAsync(string path, CancellationToken cancellationToken)
-        => await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken).ConfigureAwait(false);
+    {
+        // Resolve authenticated Seerr user identity to forward user locale and profile configuration
+        var seerrUserId = await this.ResolveAuthenticatedSeerrUserIdAsync(cancellationToken).ConfigureAwait(false);
+        return await this.ProxyAsync(HttpMethod.Get, path, null, cancellationToken, seerrUserId).ConfigureAwait(false);
+    }
 
     private async Task<IActionResult> ProxyAsync(
         HttpMethod method,
@@ -2149,6 +2312,13 @@ public class SeerrController : ControllerBase
                 req.Headers.Add("X-Api-User", seerrUserId.Value.ToString(CultureInfo.InvariantCulture));
             }
 
+            // Forward incoming client Accept-Language header to ensure upstream localization
+            if (this.Request?.Headers.TryGetValue("Accept-Language", out var acceptLanguage) == true
+                && !string.IsNullOrWhiteSpace(acceptLanguage))
+            {
+                req.Headers.TryAddWithoutValidation("Accept-Language", (string?)acceptLanguage);
+            }
+
             // Serialize JSON body payload when present
             if (body != null)
             {
@@ -2209,6 +2379,15 @@ public class SeerrController : ControllerBase
 
     private async Task<int?> ResolveSeerrUserIdAsync(Guid jellyfinUserId, CancellationToken cancellationToken)
     {
+        // -----------------------------------------------------------------
+        // In-Memory Cache Lookup
+        // -----------------------------------------------------------------
+        // Return cached Seerr user id if resolved within the last 15 minutes
+        if (SeerrUserIdCache.TryGetValue(jellyfinUserId, out var cached) && DateTime.UtcNow < cached.ExpiresAt)
+        {
+            return cached.UserId;
+        }
+
         try
         {
             const int pageSize = 100;
@@ -2256,6 +2435,8 @@ public class SeerrController : ControllerBase
                         if (candidate != null
                             && candidate.Equals(normalizedUserId, StringComparison.OrdinalIgnoreCase))
                         {
+                            // Cache resolved user ID for 15 minutes
+                            SeerrUserIdCache[jellyfinUserId] = (seerrUserId, DateTime.UtcNow.AddMinutes(15));
                             return seerrUserId;
                         }
                     }
@@ -2273,6 +2454,8 @@ public class SeerrController : ControllerBase
                             if (!string.IsNullOrWhiteSpace(jfUser) && jfUser.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
                             {
                                 this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via jellyfinUsername match '{Username}'", seerrUserId, currentUsername);
+                                // Cache resolved user ID for 15 minutes
+                                SeerrUserIdCache[jellyfinUserId] = (seerrUserId, DateTime.UtcNow.AddMinutes(15));
                                 return seerrUserId;
                             }
                         }
@@ -2284,6 +2467,8 @@ public class SeerrController : ControllerBase
                             if (!string.IsNullOrWhiteSpace(uName) && uName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
                             {
                                 this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via username match '{Username}'", seerrUserId, currentUsername);
+                                // Cache resolved user ID for 15 minutes
+                                SeerrUserIdCache[jellyfinUserId] = (seerrUserId, DateTime.UtcNow.AddMinutes(15));
                                 return seerrUserId;
                             }
                         }
@@ -2296,6 +2481,8 @@ public class SeerrController : ControllerBase
                 }
             }
 
+            // Cache negative lookup for 5 minutes so repeated misses don't flood upstream
+            SeerrUserIdCache[jellyfinUserId] = (null, DateTime.UtcNow.AddMinutes(5));
             return null;
         }
         catch (Exception ex)
