@@ -48,6 +48,9 @@ public class SeerrController : ControllerBase
     // TMDB duotone filter segments such as w1280_filter(duotone,991B1B,FCA5A5)
     private static readonly Regex ImageDuotoneSegmentRegex = new(@"^w[0-9]+_filter\(duotone,[0-9A-Fa-f]{6},[0-9A-Fa-f]{6}\)\z", RegexOptions.Compiled);
 
+    // TMDB original-language filters: ISO 639-1 codes, optionally pipe-separated ("ja|ko")
+    private static readonly Regex OriginalLanguageFilterRegex = new(@"^[a-z]{2}(\|[a-z]{2})*\z", RegexOptions.Compiled);
+
     // Image types GetImage passes through, mapped to the type it responds with; anything else
     // falls back to the TMDB redirect. Seerr labels JPEGs "image/jpg" (image/<file extension>).
     private static readonly Dictionary<string, string> AllowedImageContentTypes = new(StringComparer.OrdinalIgnoreCase)
@@ -665,7 +668,7 @@ public class SeerrController : ControllerBase
     /// </summary>
     /// <param name="page">The page number.</param>
     /// <param name="genre">The optional comma-separated genre identifier(s).</param>
-    /// <param name="language">The optional pipe-separated language identifier(s).</param>
+    /// <param name="language">The optional pipe-separated ISO 639-1 original-language filter (e.g. ja|ko); not the display language.</param>
     /// <param name="certification">The optional pipe-separated certification rating(s).</param>
     /// <param name="certificationCountry">The optional certification country code (defaults to US).</param>
     /// <param name="keywords">The optional keywords identifier.</param>
@@ -691,11 +694,12 @@ public class SeerrController : ControllerBase
             queryParams.Add($"genre={Uri.EscapeDataString(genre)}");
         }
 
-        // Resolve requested language explicitly or from Accept-Language header
-        var effectiveLanguage = this.ResolveEffectiveLanguage(language);
-        if (!string.IsNullOrWhiteSpace(effectiveLanguage))
+        // Seerr reads `language` on /discover/movies|tv as the TMDB original-language filter, not the
+        // display language. Forwarding the Accept-Language header or a UI locale such as "en-US" made
+        // every result disappear, so only explicit ISO 639-1 filters ("ja", "ja|ko") pass through.
+        if (!string.IsNullOrWhiteSpace(language) && OriginalLanguageFilterRegex.IsMatch(language.Trim()))
         {
-            queryParams.Add($"language={Uri.EscapeDataString(effectiveLanguage)}");
+            queryParams.Add($"language={Uri.EscapeDataString(language.Trim())}");
         }
 
         if (!string.IsNullOrWhiteSpace(certification))
@@ -798,7 +802,7 @@ public class SeerrController : ControllerBase
     /// </summary>
     /// <param name="page">The page number.</param>
     /// <param name="genre">The optional comma-separated genre identifier(s).</param>
-    /// <param name="language">The optional pipe-separated language identifier(s).</param>
+    /// <param name="language">The optional pipe-separated ISO 639-1 original-language filter (e.g. ja|ko); not the display language.</param>
     /// <param name="certification">The optional pipe-separated certification rating(s).</param>
     /// <param name="certificationCountry">The optional certification country code (defaults to US).</param>
     /// <param name="keywords">The optional keywords identifier.</param>
@@ -824,11 +828,12 @@ public class SeerrController : ControllerBase
             queryParams.Add($"genre={Uri.EscapeDataString(genre)}");
         }
 
-        // Resolve requested language explicitly or from Accept-Language header
-        var effectiveLanguage = this.ResolveEffectiveLanguage(language);
-        if (!string.IsNullOrWhiteSpace(effectiveLanguage))
+        // Seerr reads `language` on /discover/movies|tv as the TMDB original-language filter, not the
+        // display language. Forwarding the Accept-Language header or a UI locale such as "en-US" made
+        // every result disappear, so only explicit ISO 639-1 filters ("ja", "ja|ko") pass through.
+        if (!string.IsNullOrWhiteSpace(language) && OriginalLanguageFilterRegex.IsMatch(language.Trim()))
         {
-            queryParams.Add($"language={Uri.EscapeDataString(effectiveLanguage)}");
+            queryParams.Add($"language={Uri.EscapeDataString(language.Trim())}");
         }
 
         if (!string.IsNullOrWhiteSpace(certification))
