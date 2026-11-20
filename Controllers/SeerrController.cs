@@ -48,8 +48,14 @@ public class SeerrController : ControllerBase
     // TMDB duotone filter segments such as w1280_filter(duotone,991B1B,FCA5A5)
     private static readonly Regex ImageDuotoneSegmentRegex = new(@"^w[0-9]+_filter\(duotone,[0-9A-Fa-f]{6},[0-9A-Fa-f]{6}\)\z", RegexOptions.Compiled);
 
+    // Numeric TMDB identifier lists such as "123,456" or "8|337" (keywords, watch providers)
+    private static readonly Regex NumericIdListRegex = new(@"^[0-9]+([,|][0-9]+)*\z", RegexOptions.Compiled);
+
     // TMDB original-language filters: ISO 639-1 codes, optionally pipe-separated ("ja|ko")
     private static readonly Regex OriginalLanguageFilterRegex = new(@"^[a-z]{2}(\|[a-z]{2})*\z", RegexOptions.Compiled);
+
+    // ISO 3166-1 alpha-2 region codes used by TMDB watch provider filters
+    private static readonly Regex WatchRegionRegex = new(@"^[A-Z]{2}\z", RegexOptions.Compiled);
 
     // Image types GetImage passes through, mapped to the type it responds with; anything else
     // falls back to the TMDB redirect. Seerr labels JPEGs "image/jpg" (image/<file extension>).
@@ -674,6 +680,9 @@ public class SeerrController : ControllerBase
     /// <param name="keywords">The optional keywords identifier.</param>
     /// <param name="studio">The optional studio identifier.</param>
     /// <param name="sortBy">The optional TMDB sort expression (e.g. popularity.desc, release_date.desc, vote_average.desc, original_title.asc).</param>
+    /// <param name="keywordIds">The optional comma- or pipe-separated keyword identifiers; used only when <paramref name="keywords"/> is absent.</param>
+    /// <param name="watchProviders">The optional pipe-separated TMDB watch provider identifiers; requires <paramref name="watchRegion"/>.</param>
+    /// <param name="watchRegion">The optional ISO 3166-1 region code for <paramref name="watchProviders"/>.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Movies")]
@@ -686,6 +695,9 @@ public class SeerrController : ControllerBase
         [FromQuery] int? keywords = null,
         [FromQuery] int? studio = null,
         [FromQuery] string? sortBy = null,
+        [FromQuery] string? keywordIds = null,
+        [FromQuery] string? watchProviders = null,
+        [FromQuery] string? watchRegion = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new List<string>();
@@ -709,10 +721,7 @@ public class SeerrController : ControllerBase
             queryParams.Add($"certification={Uri.EscapeDataString(certification)}");
         }
 
-        if (keywords.HasValue)
-        {
-            queryParams.Add($"keywords={keywords.Value.ToString(CultureInfo.InvariantCulture)}");
-        }
+        AppendCatalogFilters(queryParams, keywords, keywordIds, watchProviders, watchRegion);
 
         if (studio.HasValue)
         {
@@ -808,6 +817,9 @@ public class SeerrController : ControllerBase
     /// <param name="keywords">The optional keywords identifier.</param>
     /// <param name="network">The optional network identifier.</param>
     /// <param name="sortBy">The optional TMDB sort expression (e.g. popularity.desc, first_air_date.desc, vote_average.desc, original_title.asc).</param>
+    /// <param name="keywordIds">The optional comma- or pipe-separated keyword identifiers; used only when <paramref name="keywords"/> is absent.</param>
+    /// <param name="watchProviders">The optional pipe-separated TMDB watch provider identifiers; requires <paramref name="watchRegion"/>.</param>
+    /// <param name="watchRegion">The optional ISO 3166-1 region code for <paramref name="watchProviders"/>.</param>
     /// <param name="cancellationToken">The request cancellation token.</param>
     /// <returns>The Seerr response.</returns>
     [HttpGet("Discover/Tv")]
@@ -820,6 +832,9 @@ public class SeerrController : ControllerBase
         [FromQuery] int? keywords = null,
         [FromQuery] int? network = null,
         [FromQuery] string? sortBy = null,
+        [FromQuery] string? keywordIds = null,
+        [FromQuery] string? watchProviders = null,
+        [FromQuery] string? watchRegion = null,
         CancellationToken cancellationToken = default)
     {
         var queryParams = new List<string>();
@@ -843,10 +858,7 @@ public class SeerrController : ControllerBase
             queryParams.Add($"certification={Uri.EscapeDataString(certification)}");
         }
 
-        if (keywords.HasValue)
-        {
-            queryParams.Add($"keywords={keywords.Value.ToString(CultureInfo.InvariantCulture)}");
-        }
+        AppendCatalogFilters(queryParams, keywords, keywordIds, watchProviders, watchRegion);
 
         if (network.HasValue)
         {
@@ -958,6 +970,16 @@ public class SeerrController : ControllerBase
         [FromQuery] string? language = null,
         CancellationToken cancellationToken = default)
         => this.ProxyGetMerged5PagesAsync(this.AppendEffectiveLanguage("/discover/tv/upcoming", language), page, cancellationToken);
+
+    /// <summary>
+    /// Gets the discover slider configuration (built-in and custom rows, order, enabled state) from Seerr.
+    /// Seerr allows this for any authenticated user, so no admin permission is required.
+    /// </summary>
+    /// <param name="cancellationToken">The request cancellation token.</param>
+    /// <returns>The Seerr response.</returns>
+    [HttpGet("Settings/Discover")]
+    public Task<IActionResult> GetDiscoverSettings(CancellationToken cancellationToken = default)
+        => this.ProxyGetAsync("/settings/discover", cancellationToken);
 
     /// <summary>
     /// Gets movie genre slider items from Seerr.
@@ -1613,6 +1635,36 @@ public class SeerrController : ControllerBase
 
         var path = $"/watchlist/{tmdbId.ToString(CultureInfo.InvariantCulture)}?mediaType={normalizedMediaType}";
         return await this.ProxyAsync(HttpMethod.Delete, path, null, cancellationToken, userId).ConfigureAwait(false);
+    }
+
+    // Appends keyword and watch provider filters shared by the movie and tv discover routes.
+    // The legacy single keywords identifier wins over keywordIds; malformed list values are
+    // ignored so they never reach Seerr.
+    private static void AppendCatalogFilters(
+        List<string> queryParams,
+        int? keywords,
+        string? keywordIds,
+        string? watchProviders,
+        string? watchRegion)
+    {
+        if (keywords.HasValue)
+        {
+            queryParams.Add($"keywords={keywords.Value.ToString(CultureInfo.InvariantCulture)}");
+        }
+        else if (!string.IsNullOrWhiteSpace(keywordIds) && NumericIdListRegex.IsMatch(keywordIds))
+        {
+            queryParams.Add($"keywords={Uri.EscapeDataString(keywordIds)}");
+        }
+
+        // TMDB only honours watch providers together with a watch region
+        if (!string.IsNullOrWhiteSpace(watchProviders)
+            && NumericIdListRegex.IsMatch(watchProviders)
+            && !string.IsNullOrWhiteSpace(watchRegion)
+            && WatchRegionRegex.IsMatch(watchRegion))
+        {
+            queryParams.Add($"watchRegion={watchRegion}");
+            queryParams.Add($"watchProviders={Uri.EscapeDataString(watchProviders)}");
+        }
     }
 
     private static string? GetServiceName(string mediaType)
