@@ -4,6 +4,7 @@
 
 #pragma warning disable CA1848 // Use LoggerMessage delegates for performance
 #pragma warning disable CA1031 // Do not catch general exception types
+#pragma warning disable CA1308 // Normalize strings to uppercase - standard language codes are lowercase
 
 namespace Litefin.Plugin.Controllers;
 
@@ -69,6 +70,9 @@ public class SeerrController : ControllerBase
     // In-memory cache holding resolved Seerr user IDs for Jellyfin users
     // Keyed by Jellyfin User ID to avoid repeated upstream network roundtrips on GET requests
     private static readonly ConcurrentDictionary<Guid, (int? UserId, DateTime ExpiresAt)> SeerrUserIdCache = new();
+
+    // Delimiters for decomposing language identifiers (e.g. "en-US", "zh_CN")
+    private static readonly char[] LanguageDelimiters = ['-', '_'];
 
     private readonly IHttpClientFactory httpClientFactory;
     private readonly ILogger<SeerrController> logger;
@@ -2134,15 +2138,17 @@ public class SeerrController : ControllerBase
         {
             // Accept-Language can be a comma-separated list like "de,en;q=0.8" or "pt-BR,pt;q=0.9"
             var primary = rawAcceptLanguage.ToString().Split(',')[0].Trim();
+
             // Strip any quality values (e.g. ";q=1.0")
             var clean = primary.Split(';')[0].Trim();
             if (!string.IsNullOrWhiteSpace(clean))
             {
-                var parts = clean.Split(new[] { '-', '_' }, StringSplitOptions.RemoveEmptyEntries);
+                var parts = clean.Split(LanguageDelimiters, StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length >= 2)
                 {
                     return $"{parts[0].ToLowerInvariant()}-{parts[1].ToUpperInvariant()}";
                 }
+
                 if (parts.Length == 1)
                 {
                     return parts[0].ToLowerInvariant();
@@ -2554,6 +2560,7 @@ public class SeerrController : ControllerBase
                             if (!string.IsNullOrWhiteSpace(jfUser) && jfUser.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
                             {
                                 this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via jellyfinUsername match '{Username}'", seerrUserId, currentUsername);
+
                                 // Cache resolved user ID for 15 minutes
                                 SeerrUserIdCache[jellyfinUserId] = (seerrUserId, DateTime.UtcNow.AddMinutes(15));
                                 return seerrUserId;
@@ -2567,6 +2574,7 @@ public class SeerrController : ControllerBase
                             if (!string.IsNullOrWhiteSpace(uName) && uName.Equals(currentUsername, StringComparison.OrdinalIgnoreCase))
                             {
                                 this.logger.LogInformation("Resolved Seerr user {SeerrUserId} via username match '{Username}'", seerrUserId, currentUsername);
+
                                 // Cache resolved user ID for 15 minutes
                                 SeerrUserIdCache[jellyfinUserId] = (seerrUserId, DateTime.UtcNow.AddMinutes(15));
                                 return seerrUserId;
