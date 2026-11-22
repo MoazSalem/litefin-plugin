@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/MoazSalem/litefin-plugin/release/icon.png",
     "versions": [
       {
+        "version": "1.12.0.13",
+        "changelog": "Release 1.12.0.13",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/MoazSalem/litefin-plugin/releases/download/v1.12.0.13/Litefin.Plugin_1.12.0.13.zip",
+        "checksum": "a40063c847031c995c39abd4c6327fa2",
+        "timestamp": "2026-11-22T09:56:58Z"
+      },
+      {
         "version": "1.12.0.12",
         "changelog": "Release 1.12.0.12",
         "targetAbi": "12.0.0.0",
